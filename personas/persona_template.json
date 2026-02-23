@@ -1,0 +1,67 @@
+{
+  "id": "persona_unique_identifier_here",
+  "document": "A [age]-year-old [gender] currently located in [location]. Their professional background is in [industry/profession]. They grew up in [cultural or family background context]. They have a relationship status of [relationship_status] and their family structure includes [family_structure]. They engage with technology at a level described as [technology_familiarity_level]. Gaming experience level is [gaming_experience_level]. They view gaming as [purpose_of_gaming]. They prefer [preferred_ecosystem_or_platform] because of [reason_for_preference]. Their purchasing philosophy centers around [core_decision_values]. They are motivated by [core_motivations]. Emotional language that resonates with them includes [emotional_keywords]. Their decision-making style can be described as [decision_style_description]. They balance internal tensions between [internal_conflict_1] and [internal_conflict_2].",
+  "metadata": {
+    "age": 0,
+    "gender": "",
+    "nationality": "",
+    "current_location": "",
+    "relationship_status": "",
+    "family_background": {
+      "household_structure": "",
+      "parental_influence": "",
+      "values_instilled": []
+    },
+    "education_status": "",
+    "profession": "",
+    "industry": "",
+    "brand_loyalty": {
+      "primary_ecosystem": "",
+      "loyalty_reason": "",
+      "trend_sensitivity": ""
+    },
+    "technology_familiarity_level": "",
+    "gaming_experience_level": "",
+    "core_interests": [],
+    "evaluation_framework": {
+      "primary_filter": "",
+      "secondary_filter": "",
+      "price_sensitivity": "",
+      "trend_resistance": ""
+    },
+    "comparison_style": {
+      "approach": "",
+      "feature_vs_feel_weight": "",
+      "upgrade_frequency": ""
+    },
+    "purchase_hesitation_triggers": [],
+    "decision_triggers": [],
+    "motivations": [],
+    "psychographics": {
+      "identity": "",
+      "decision_style": "",
+      "risk_tolerance": "",
+      "competitive_drive": "",
+      "collaborative_drive": ""
+    },
+    "time_profile": {
+      "weekday_availability": "",
+      "weekend_availability": "",
+      "session_preference": ""
+    },
+    "emotional_language_resonance": [],
+    "internal_conflicts": [],
+    "public_persona_vs_private_self": {
+      "offline": "",
+      "online_or_public": "",
+      "communication_style": ""
+    },
+    "cognitive_frame": "",
+    "nostalgia_index": "",
+    "financial_profile": "",
+    "long_term_goals": [],
+    "short_term_goals": [],
+    "environmental_constraints": [],
+    "media_consumption_patterns": []
+  }
+}
