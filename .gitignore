@@ -1,0 +1,27 @@
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Databases and Local storage
+.chromadb/
+.claude/
+.env
+
+# Environments
+.venv/
+env/
+venv/
+ENV/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+.venv/
+__pycache__/
+.chromadb/
+.claude/
+.env
+*.py[cod]
