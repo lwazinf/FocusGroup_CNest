@@ -1,115 +1,592 @@
 #!/usr/bin/env python3
 """
-main.py — Focus Group Simulation Terminal Entry Point
+main.py — Focus Group Room Terminal Entry Point
 
-Usage:
-    python main.py
+Room commands during a session:
+    !add @[name]     — add a persona to the active room
+    !kick @[name]    — remove a persona from the room
+    !observe         — let personas discuss amongst themselves (you watch)
+    !focus @[name]   — speak only to one persona; others observe
+    !focus           — clear focus, all active personas respond again
+    !reset           — clear session history for all personas in room
+    !exit            — end session and save a Markdown summary
 
-Commands during session:
-    @Lena     — switch to Lena
-    @Marcus   — switch to Marcus
-    !reset    — clear current persona's conversation history
-    !exit     — quit the simulation
+Persona selection menu:
+    1 / 2            — default personas (Lena, Marcus)
+    G                — generate a new random persona
+    3, 4, …          — a saved custom persona (opens manage menu)
+    1 2              — multiple keys to start with both in the room
 """
 import sys
-from core.graph import build_graph
-from core.persona_router import detect_switch, detect_command
-from core.nodes import SessionState, assemble_context
-from db.redis_client import reset_session, load_history
+import json
+import os
+from typing import Dict
+
+from core.room import (
+    RoomState, PersonaContext,
+    make_log_entry, add_persona_to_room, kick_persona_from_room,
+    set_focus, clear_focus, append_log,
+)
+from core.nodes import generate_response_for_persona
+from core.persona_router import detect_command
+from core.summary import save_chat_summary
+from core.prompt_builder import build_system_prompt
+from core.persona_generator import (
+    generate_random_persona, refine_with_description,
+    edit_traits_interactive, display_persona_traits,
+)
+from core.persona_store import (
+    load_custom_registry, save_custom_persona,
+    delete_custom_persona, update_custom_persona,
+    get_full_registry, get_full_mention_map,
+)
+from db.chroma_client import get_persona
+from db.redis_client import load_history, reset_session
 from config import PERSONA_REGISTRY
 
-DIVIDER = "─" * 50
+# ── ANSI colours ──────────────────────────────────────────────────────────────
+_COLOUR_CYCLE = [
+    "\033[96m",   # Bright Cyan
+    "\033[93m",   # Bright Yellow
+    "\033[95m",   # Bright Magenta
+    "\033[92m",   # Bright Green
+    "\033[94m",   # Bright Blue
+    "\033[91m",   # Bright Red
+    "\033[97m",   # Bright White
+]
+PERSONA_COLORS: Dict[str, str] = {
+    str(i + 1): c for i, c in enumerate(_COLOUR_CYCLE)
+}
 
-def print_banner():
-    print("\n" + "=" * 50)
-    print("  FOCUS GROUP SIMULATION")
-    print("  Product: PlayStation 5")
-    print("=" * 50)
+THINK_COLOR  = "\033[90m"    # Dark Grey  – thoughts
+SYSTEM_COLOR = "\033[2;37m"  # Dim White  – system messages
+USER_BOLD    = "\033[1m"     # Bold
+RESET        = "\033[0m"
+BOLD         = "\033[1m"
+DIM          = "\033[2m"
 
-def choose_persona() -> str:
-    print("\nWho would you like to speak with?\n")
-    for key, val in PERSONA_REGISTRY.items():
-        print(f"  {key}. {val['name']}")
-    print()
-    while True:
-        choice = input("Enter 1 or 2: ").strip()
-        if choice in PERSONA_REGISTRY:
-            return choice
-        print("  Please enter 1 or 2.")
+DIVIDER      = "─" * 60
+DEFAULT_KEYS = {"1", "2"}
 
-def announce_persona(persona_key: str):
-    name = PERSONA_REGISTRY[persona_key]["name"]
-    redis_key = PERSONA_REGISTRY[persona_key]["redis_key"]
-    history = load_history(redis_key)
-    print(f"\n{DIVIDER}")
-    if history:
-        print(f"[Resuming session with {name}]")
-    else:
-        print(f"[{name} is ready]")
-    print(DIVIDER)
 
-def run():
-    print_banner()
-    graph = build_graph()
+def cprint(color: str, text: str) -> None:
+    print(f"{color}{text}{RESET}")
 
-    # Initial persona selection
-    persona_key = choose_persona()
-    announce_persona(persona_key)
 
-    # Seed initial state
-    state: SessionState = {
+def persona_color(key: str) -> str:
+    # Assign colours by key position, cycling for keys > number of defined colours
+    try:
+        idx = (int(key) - 1) % len(_COLOUR_CYCLE)
+        return _COLOUR_CYCLE[idx]
+    except ValueError:
+        return "\033[97m"
+
+
+# ── Persona loading ───────────────────────────────────────────────────────────
+
+def load_persona_context(persona_key: str) -> PersonaContext:
+    reg = get_full_registry()[persona_key]
+    persona_data = get_persona(reg["id"])
+    system_prompt = build_system_prompt(
+        persona_name=reg["name"],
+        persona_document=persona_data["document"],
+        metadata=persona_data["metadata"],
+    )
+    history = load_history(reg["redis_key"])
+    return {
         "persona_key": persona_key,
-        "persona_name": "",
-        "persona_id": "",
-        "redis_key": "",
-        "system_prompt": "",
-        "history": [],
-        "user_input": "",
-        "response": "",
-        "command": ""
+        "name": reg["name"],
+        "redis_key": reg["redis_key"],
+        "system_prompt": system_prompt,
+        "history": history,
     }
 
-    # Run context assembly once for the initial persona
-    state = assemble_context(state)
+
+# ── Banner ────────────────────────────────────────────────────────────────────
+
+def print_banner() -> None:
+    print("\n" + "=" * 60)
+    print("  FOCUS GROUP SIMULATION  —  Room Mode")
+    print("  Product: PlayStation 5")
+    print("=" * 60)
+    cprint(SYSTEM_COLOR, "  !add @name  !kick @name  !observe  !focus @name  !exit")
+    print()
+
+
+# ── Persona selection menu ────────────────────────────────────────────────────
+
+def _print_persona_menu(full_registry: dict) -> None:
+    cprint(SYSTEM_COLOR, "\n── Select personas ──────────────────────────────────────")
+    cprint(BOLD, "  DEFAULT PERSONAS:")
+    for key in sorted(DEFAULT_KEYS):
+        if key in full_registry:
+            reg = full_registry[key]
+            print(f"  {key}. {reg['name']}")
+
+    custom = {k: v for k, v in full_registry.items() if k not in DEFAULT_KEYS}
+    if custom:
+        cprint(BOLD, "\n  YOUR PERSONAS:")
+        for key in sorted(custom.keys(), key=int):
+            reg = custom[key]
+            print(f"  {key}. {reg['name']}")
+
+    print()
+    cprint(SYSTEM_COLOR, "  G  — Generate a random persona")
+    cprint(SYSTEM_COLOR, "  Q  — Quit")
+    cprint(SYSTEM_COLOR, "\n  Enter numbers to start room (e.g. '1 2'),")
+    cprint(SYSTEM_COLOR, "  a single custom number to manage it, or 'G':")
+
+
+def choose_initial_personas() -> list:
+    """
+    Returns list of persona keys to put in the room.
+    Returns empty list only when user quits.
+    """
+    while True:
+        full_registry  = get_full_registry()
+        mention_map    = get_full_mention_map()
+        _print_persona_menu(full_registry)
+
+        try:
+            raw = input("\n> ").strip()
+        except (KeyboardInterrupt, EOFError):
+            sys.exit(0)
+
+        if not raw:
+            continue
+
+        lower = raw.lower()
+
+        if lower in ("q", "quit"):
+            sys.exit(0)
+
+        if lower == "g":
+            key = _generate_persona_flow()
+            if key:
+                return [key]
+            continue   # back from generate flow → re-show menu
+
+        parts = [p.strip() for p in raw.split()]
+        valid = [p for p in parts if p in full_registry]
+
+        if not valid:
+            cprint(SYSTEM_COLOR, "[No valid persona numbers. Try again.]")
+            continue
+
+        # Single custom persona → management menu
+        if len(valid) == 1 and valid[0] not in DEFAULT_KEYS:
+            result = _manage_custom_persona(valid[0])
+            if result == "chat":
+                return valid
+            # 'back' or 'deleted' → loop
+            continue
+
+        return valid
+
+
+# ── Generate-persona flow ─────────────────────────────────────────────────────
+
+def _generate_persona_flow() -> str | None:
+    """
+    Guides the user through generating, editing, and saving a new persona.
+    Returns the persona key to chat with, or None (go back).
+    """
+    persona = generate_random_persona()
 
     while True:
+        print()
+        display_persona_traits(persona)
+        print()
+        cprint(SYSTEM_COLOR, "  1. Chat with this persona")
+        cprint(SYSTEM_COLOR, "  2. Edit by description")
+        cprint(SYSTEM_COLOR, "  3. Edit traits individually")
+        cprint(SYSTEM_COLOR, "  4. Regenerate entirely")
+        cprint(SYSTEM_COLOR, "  5. Back")
+
         try:
-            user_input = input(f"\nYou: ").strip()
+            choice = input("\n> ").strip()
         except (KeyboardInterrupt, EOFError):
-            print("\n\n[Session ended]")
-            sys.exit(0)
+            return None
+
+        if choice == "1":
+            # Save and return key
+            cprint(SYSTEM_COLOR, "\n[Saving persona...]")
+            key = save_custom_persona(persona)
+            cprint(persona_color(key), f"[{persona['name']} saved as persona #{key}]")
+            return key
+
+        elif choice == "2":
+            try:
+                desc = input("Describe changes (e.g. 'make them older and budget-conscious'):\n> ").strip()
+            except (KeyboardInterrupt, EOFError):
+                continue
+            if desc:
+                persona = refine_with_description(persona, desc)
+
+        elif choice == "3":
+            updated = edit_traits_interactive(persona)
+            if updated is not None:
+                persona = updated
+
+        elif choice == "4":
+            persona = generate_random_persona()
+
+        elif choice == "5":
+            return None
+
+        else:
+            cprint(SYSTEM_COLOR, "[Enter 1–5]")
+
+
+# ── Custom persona management menu ───────────────────────────────────────────
+
+def _manage_custom_persona(key: str) -> str:
+    """
+    Show Chat / Edit / Delete / Back for a saved custom persona.
+    Returns: 'chat', 'back', or 'deleted'.
+    """
+    while True:
+        registry = load_custom_registry()
+        if key not in registry:
+            return "deleted"
+
+        entry = registry[key]
+        name  = entry["name"]
+
+        cprint(SYSTEM_COLOR, f"\n{DIVIDER}")
+        cprint(BOLD, f"  {name}")
+        cprint(SYSTEM_COLOR, DIVIDER)
+        cprint(SYSTEM_COLOR, "  1. Chat")
+        cprint(SYSTEM_COLOR, "  2. Edit")
+        cprint(SYSTEM_COLOR, "  3. Delete")
+        cprint(SYSTEM_COLOR, "  4. Back")
+
+        try:
+            choice = input("\n> ").strip()
+        except (KeyboardInterrupt, EOFError):
+            return "back"
+
+        if choice == "1":
+            return "chat"
+
+        elif choice == "2":
+            result = _edit_custom_persona(key)
+            if result == "saved":
+                cprint(SYSTEM_COLOR, "[Saved. Returning to menu.]")
+                # Loop back — registry name may have changed
+            # 'back' → just loop back to this menu
+
+        elif choice == "3":
+            try:
+                confirm = input(f"Delete {name}? This cannot be undone. (y/n): ").strip().lower()
+            except (KeyboardInterrupt, EOFError):
+                continue
+            if confirm == "y":
+                delete_custom_persona(key)
+                cprint(SYSTEM_COLOR, f"[{name} deleted.]")
+                return "deleted"
+
+        elif choice == "4":
+            return "back"
+
+        else:
+            cprint(SYSTEM_COLOR, "[Enter 1–4]")
+
+
+def _edit_custom_persona(key: str) -> str:
+    """
+    Load the persona file, run the interactive trait editor, save on 's'.
+    Returns 'saved' or 'back'.
+    """
+    registry = load_custom_registry()
+    entry    = registry[key]
+
+    persona_path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "personas", "custom", entry["file"]
+    )
+    try:
+        with open(persona_path) as f:
+            persona = json.load(f)
+    except Exception as e:
+        cprint(SYSTEM_COLOR, f"[Could not load persona file: {e}]")
+        return "back"
+
+    print()
+    updated = edit_traits_interactive(persona)
+    if updated is None:
+        return "back"
+
+    update_custom_persona(key, updated)
+    return "saved"
+
+
+# ── Observe mode ──────────────────────────────────────────────────────────────
+
+def run_observe(room_state: RoomState) -> RoomState:
+    """Personas converse with each other for a few rounds while you watch."""
+    active = room_state["active_personas"]
+    if len(active) < 2:
+        cprint(SYSTEM_COLOR, "[Observe requires at least 2 personas in the room.]")
+        return room_state
+
+    room_state = append_log(room_state, make_log_entry(
+        "system", "Moderator stepped back. Personas discussing amongst themselves.",
+    ))
+
+    cprint(SYSTEM_COLOR, f"\n{DIVIDER}")
+    cprint(SYSTEM_COLOR, "  [Observing — press Ctrl+C to stop]")
+    cprint(SYSTEM_COLOR, f"{DIVIDER}\n")
+
+    all_names = [
+        room_state["personas"][k]["name"]
+        for k in active if k in room_state["personas"]
+    ]
+
+    last_user_content = ""
+    for entry in reversed(room_state["full_log"]):
+        if entry["type"] == "user":
+            last_user_content = entry["content"]
+            break
+
+    speaker_list = " and ".join(all_names)
+    current_prompt = (
+        f"[The moderator has stepped back. Only {speaker_list} are in this room — "
+        f"speak only to each other. Continue the focus-group discussion about the PS5.] "
+        + (last_user_content if last_user_content else "Share your thoughts on the PS5.")
+    )
+
+    try:
+        rounds = 3
+        last_speaker_key = None
+
+        for _ in range(rounds):
+            for pkey in active:
+                if pkey == last_speaker_key and len(active) < 2:
+                    continue
+
+                ctx   = room_state["personas"][pkey]
+                color = persona_color(pkey)
+
+                print(f"{DIM}[{ctx['name']} is thinking...]{RESET}")
+                thoughts, response, updated_history = generate_response_for_persona(
+                    ctx, current_prompt, is_observe=True,
+                    room_participants=all_names,
+                )
+
+                if thoughts:
+                    cprint(THINK_COLOR, f"  \U0001f4ad {ctx['name']} thinks: {thoughts}")
+                    print()
+
+                print(f"{color}{BOLD}{ctx['name']}:{RESET} {response}")
+                cprint(SYSTEM_COLOR, DIVIDER)
+
+                updated_personas = dict(room_state["personas"])
+                updated_personas[pkey] = {**ctx, "history": updated_history}
+                room_state = {**room_state, "personas": updated_personas}
+
+                room_state = append_log(room_state, make_log_entry(
+                    "persona", response, pkey, ctx["name"], thoughts,
+                ))
+
+                other_names = [n for n in all_names if n != ctx["name"]]
+                addressee   = " and ".join(other_names) if other_names else "the other participant"
+                current_prompt = (
+                    f"[{ctx['name']} just said to {addressee}]: \"{response}\"\n"
+                    f"[You are {addressee}. Respond directly to {ctx['name']}. "
+                    f"Only {speaker_list} are in this room.]"
+                )
+                last_speaker_key = pkey
+
+    except KeyboardInterrupt:
+        cprint(SYSTEM_COLOR, "\n[Observation stopped.]")
+
+    return room_state
+
+
+# ── Main loop ─────────────────────────────────────────────────────────────────
+
+def run() -> None:
+    print_banner()
+
+    initial_keys = choose_initial_personas()
+
+    personas: Dict[str, PersonaContext] = {}
+    full_reg = get_full_registry()
+    for key in initial_keys:
+        cprint(SYSTEM_COLOR, f"[Loading {full_reg[key]['name']}...]")
+        personas[key] = load_persona_context(key)
+
+    room_state: RoomState = {
+        "active_personas": initial_keys,
+        "focus_persona": "",
+        "mode": "chat",
+        "personas": personas,
+        "full_log": [],
+    }
+
+    names = [personas[k]["name"] for k in initial_keys]
+    cprint(SYSTEM_COLOR, f"\n{DIVIDER}")
+    cprint(SYSTEM_COLOR, f"  Room: {', '.join(names)} ready")
+    cprint(SYSTEM_COLOR, f"{DIVIDER}\n")
+
+    while True:
+        active      = room_state["active_personas"]
+        focus       = room_state["focus_persona"]
+        mention_map = get_full_mention_map()   # refresh each turn for newly added personas
+
+        if focus and focus in room_state["personas"]:
+            focused_name = room_state["personas"][focus]["name"]
+            label = f"{USER_BOLD}You \u2192 {focused_name}{RESET}"
+        else:
+            room_names = [
+                room_state["personas"][k]["name"]
+                for k in active if k in room_state["personas"]
+            ]
+            label = f"{USER_BOLD}You \u2192 [{', '.join(room_names)}]{RESET}"
+
+        try:
+            user_input = input(f"\n{label}: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            user_input = "!exit"
 
         if not user_input:
             continue
 
-        # Check for reserved commands
-        cmd = detect_command(user_input)
-        if cmd == "exit":
-            print("\n[Session ended. Goodbye.]")
-            sys.exit(0)
-        if cmd == "reset":
-            reset_session(state["redis_key"])
-            state["history"] = []
-            print(f"\n[{state['persona_name']}'s session history cleared.]\n")
+        # ── Command dispatch ──────────────────────────────────────────────────
+        cmd_result = detect_command(user_input, mention_map=mention_map)
+        if cmd_result:
+            cmd = cmd_result["cmd"]
+
+            if cmd == "exit":
+                persona_names = [
+                    ctx["name"]
+                    for pkey, ctx in room_state["personas"].items()
+                    if pkey in active
+                ]
+                if room_state["full_log"]:
+                    filepath = save_chat_summary(room_state["full_log"], persona_names)
+                    cprint(SYSTEM_COLOR, f"\n[Summary saved to: {filepath}]")
+                else:
+                    cprint(SYSTEM_COLOR, "\n[No conversation to save.]")
+                cprint(SYSTEM_COLOR, "[Session ended. Goodbye.]\n")
+                sys.exit(0)
+
+            elif cmd == "reset":
+                for pkey in active:
+                    ctx = room_state["personas"][pkey]
+                    reset_session(ctx["redis_key"])
+                    updated_personas = dict(room_state["personas"])
+                    updated_personas[pkey] = {**ctx, "history": []}
+                    room_state = {**room_state, "personas": updated_personas}
+                cprint(SYSTEM_COLOR, "[Session histories cleared for all personas in room.]")
+
+            elif cmd == "observe":
+                room_state = run_observe(room_state)
+
+            elif cmd == "focus":
+                pkey  = cmd_result["persona_key"]
+                pname = cmd_result["persona_name"]
+                if pkey not in active:
+                    cprint(SYSTEM_COLOR, f"[{pname.capitalize()} is not in the room. Use !add @{pname} first.]")
+                else:
+                    room_state = set_focus(room_state, pkey)
+                    ctx = room_state["personas"][pkey]
+                    others = [
+                        room_state["personas"][k]["name"]
+                        for k in active if k != pkey and k in room_state["personas"]
+                    ]
+                    obs = f" ({', '.join(others)} {'is' if len(others) == 1 else 'are'} observing)" if others else ""
+                    cprint(SYSTEM_COLOR, f"[Focused on {ctx['name']}{obs}.]")
+
+            elif cmd == "unfocus":
+                room_state = clear_focus(room_state)
+                cprint(SYSTEM_COLOR, "[Focus cleared — all active personas will respond.]")
+
+            elif cmd == "add":
+                pkey  = cmd_result["persona_key"]
+                pname = cmd_result["persona_name"]
+                full_reg = get_full_registry()
+                if pkey in active:
+                    cprint(SYSTEM_COLOR, f"[{pname.capitalize()} is already in the room.]")
+                else:
+                    cprint(SYSTEM_COLOR, f"[Loading {full_reg[pkey]['name']}...]")
+                    if pkey not in room_state["personas"]:
+                        room_state["personas"][pkey] = load_persona_context(pkey)
+                    room_state = add_persona_to_room(room_state, pkey)
+                    ctx = room_state["personas"][pkey]
+                    cprint(persona_color(pkey), f"[{ctx['name']} has joined the room.]")
+                    room_state = append_log(room_state, make_log_entry(
+                        "system", f"{ctx['name']} joined the room.",
+                    ))
+
+            elif cmd == "kick":
+                pkey  = cmd_result["persona_key"]
+                pname = cmd_result["persona_name"]
+                if pkey not in active:
+                    cprint(SYSTEM_COLOR, f"[{pname.capitalize()} is not in the room.]")
+                else:
+                    ctx = room_state["personas"][pkey]
+                    room_state = kick_persona_from_room(room_state, pkey)
+                    cprint(persona_color(pkey), f"[{ctx['name']} has left the room.]")
+                    room_state = append_log(room_state, make_log_entry(
+                        "system", f"{ctx['name']} left the room.",
+                    ))
+
+            elif cmd in ("add_unknown", "kick_unknown", "focus_unknown"):
+                pname = cmd_result["persona_name"]
+                known = ", ".join(f"@{k[1:]}" for k in mention_map)
+                cprint(SYSTEM_COLOR, f"[Unknown persona @{pname}. Known: {known}]")
+
             continue
 
-        # Check for persona switch
-        switch_key = detect_switch(user_input)
-        if switch_key:
-            if switch_key == state["persona_key"]:
-                print(f"\n[Already speaking with {state['persona_name']}]\n")
-                continue
-            persona_key = switch_key
-            state["persona_key"] = persona_key
-            state = assemble_context(state)
-            announce_persona(persona_key)
+        # ── Normal conversation ───────────────────────────────────────────────
+        if not active:
+            cprint(SYSTEM_COLOR, "[No personas in the room. Use !add @name.]")
             continue
 
-        # Normal conversation turn — run the graph
-        state = graph.invoke({**state, "user_input": user_input})
+        room_state = append_log(room_state, make_log_entry("user", user_input))
 
-        print(f"\n{state['persona_name']}: {state['response']}\n")
-        print(DIVIDER)
+        responders = [focus] if (focus and focus in active) else list(active)
+        all_room_names = [
+            room_state["personas"][k]["name"]
+            for k in active if k in room_state["personas"]
+        ]
+
+        for pkey in responders:
+            ctx   = room_state["personas"][pkey]
+            color = persona_color(pkey)
+
+            print(f"\n{DIM}[{ctx['name']} is thinking...]{RESET}")
+            thoughts, response, updated_history = generate_response_for_persona(
+                ctx, user_input, is_observe=False,
+                room_participants=all_room_names,
+            )
+
+            if thoughts:
+                cprint(THINK_COLOR, f"  \U0001f4ad {thoughts}")
+                print()
+
+            print(f"{color}{BOLD}{ctx['name']}:{RESET} {response}")
+            cprint(SYSTEM_COLOR, DIVIDER)
+
+            updated_personas = dict(room_state["personas"])
+            updated_personas[pkey] = {**ctx, "history": updated_history}
+            room_state = {**room_state, "personas": updated_personas}
+
+            room_state = append_log(room_state, make_log_entry(
+                "persona", response, pkey, ctx["name"], thoughts,
+            ))
+
+        if focus:
+            observers = [
+                room_state["personas"][k]["name"]
+                for k in active if k != focus and k in room_state["personas"]
+            ]
+            if observers:
+                verb = "is" if len(observers) == 1 else "are"
+                cprint(SYSTEM_COLOR, f"  [{', '.join(observers)} {verb} observing]")
+
 
 if __name__ == "__main__":
     run()
