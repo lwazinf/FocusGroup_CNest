@@ -44,12 +44,23 @@ def custom_to_chroma_metadata(persona: dict) -> dict:
         "location": persona["location"],
         "profession": persona["occupation"],
         "gaming_experience_level": persona["gaming_level"],
+        "disagreeable": float(persona.get("disagreeable", 0.5)),
         "is_custom": True,
         "purchase_hesitation_triggers": persona["hesitation_triggers"],
         "motivations": persona["motivations"],
         "emotional_language_resonance": persona["emotional_resonance"],
         "psychographics_decision_style": persona["decision_style"],
     }
+
+
+def _generate_brief(persona: dict) -> str:
+    """One-line description shown in the persona selection menu."""
+    age = persona.get("age", "")
+    occupation = persona.get("occupation", "")
+    location = persona.get("location", "")
+    gaming = persona.get("gaming_level", "")
+    parts = [p for p in [f"{age}yo" if age else "", occupation, location, f"{gaming} gamer" if gaming else ""] if p]
+    return " · ".join(parts)
 
 
 def save_custom_persona(persona: dict) -> str:
@@ -68,6 +79,7 @@ def save_custom_persona(persona: dict) -> str:
         "file": f"{persona['id']}.json",
         "redis_key": f"session:custom_{slugified_name}_{ts}:messages",
         "mention": _slugify(name),   # slugified so @mention works in regex (\w+)
+        "brief": _generate_brief(persona),
     }
 
     # Save persona JSON file
@@ -123,9 +135,10 @@ def update_custom_persona(key: str, persona: dict) -> None:
     chroma_metadata = custom_to_chroma_metadata(persona)
     upsert_persona(entry["id"], persona["document"], chroma_metadata)
 
-    # Update registry entry (name may have changed)
+    # Update registry entry (name/traits may have changed)
     entry["name"] = persona["name"]
     entry["mention"] = _slugify(persona["name"])
+    entry["brief"] = _generate_brief(persona)
     registry[key] = entry
     save_registry(registry)
 

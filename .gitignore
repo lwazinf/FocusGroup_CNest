@@ -4,9 +4,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Databases and Local storage
+# Databases and local storage
 .chromadb/
-.claude/
 .env
 
 # Environments
@@ -15,13 +14,20 @@ env/
 venv/
 ENV/
 
-# OS generated files
+# Test cache
+.pytest_cache/
+
+# Generated session outputs (keep the folder, not the files)
+chat_summaries/*.md
+
+# User-generated custom personas (keep the folder, not the files)
+personas/custom/*.json
+personas/custom/registry.json
+
+# Scratch files
+prompt.txt
+
+# Tool / OS
+.claude/
 .DS_Store
 Thumbs.db
-
-.venv/
-__pycache__/
-.chromadb/
-.claude/
-.env
-*.py[cod]

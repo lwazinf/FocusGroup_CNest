@@ -31,6 +31,7 @@ from core.nodes import generate_response_for_persona
 from core.persona_router import detect_command
 from core.summary import save_chat_summary
 from core.prompt_builder import build_system_prompt
+from core.topic_context import fetch_topic_context, DEFAULT_TOPIC
 from core.persona_generator import (
     generate_random_persona, refine_with_description,
     edit_traits_interactive, display_persona_traits,
@@ -73,6 +74,18 @@ def cprint(color: str, text: str) -> None:
     print(f"{color}{text}{RESET}")
 
 
+_HINTS = (
+    '!observe ["topic"] [rounds]'
+    "  ·  !focus @name  ·  !focus"
+    "  ·  !add @name  ·  !kick @name"
+    "  ·  !topic [text]"
+    "  ·  !clear  ·  !exit  ·  !help"
+)
+
+def print_hints() -> None:
+    print(f"\n{THINK_COLOR}  {_HINTS}{RESET}")
+
+
 def persona_color(key: str) -> str:
     # Assign colours by key position, cycling for keys > number of defined colours
     try:
@@ -104,12 +117,34 @@ def load_persona_context(persona_key: str) -> PersonaContext:
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 
+def _print_help() -> None:
+    lines = [
+        DIVIDER,
+        "  Room Commands",
+        DIVIDER,
+        "  !add @name           Add a persona to the room",
+        "  !kick @name          Remove a persona from the room",
+        '  !observe             Watch personas discuss (3 rounds by default)',
+        '  !observe "topic"     Observe with a specific seed topic',
+        "  !observe [n]         Observe for n rounds",
+        "  !focus @name         Direct questions to one persona only",
+        "  !focus               Clear focus — all personas respond again",
+        "  !topic [text]        Change the discussion topic mid-session",
+        "  !topic               Reset to the default topic",
+        "  !reset / !clear      Wipe conversation history for all personas",
+        "  !exit                Close the room and save a Markdown summary",
+        "  !help                Show this help",
+        DIVIDER,
+    ]
+    for line in lines:
+        cprint(SYSTEM_COLOR, line)
+
+
 def print_banner() -> None:
     print("\n" + "=" * 60)
     print("  FOCUS GROUP SIMULATION  —  Room Mode")
-    print("  Product: PlayStation 5")
     print("=" * 60)
-    cprint(SYSTEM_COLOR, "  !add @name  !kick @name  !observe  !focus @name  !exit")
+    cprint(SYSTEM_COLOR, "  !add @name  !kick @name  !observe  !focus @name  !topic [text]  !clear  !exit  !help")
     print()
 
 
@@ -121,14 +156,20 @@ def _print_persona_menu(full_registry: dict) -> None:
     for key in sorted(DEFAULT_KEYS):
         if key in full_registry:
             reg = full_registry[key]
+            brief = reg.get("brief", "")
             print(f"  {key}. {reg['name']}")
+            if brief:
+                cprint(DIM, f"     {brief}")
 
     custom = {k: v for k, v in full_registry.items() if k not in DEFAULT_KEYS}
     if custom:
         cprint(BOLD, "\n  YOUR PERSONAS:")
         for key in sorted(custom.keys(), key=int):
             reg = custom[key]
+            brief = reg.get("brief", "")
             print(f"  {key}. {reg['name']}")
+            if brief:
+                cprint(DIM, f"     {brief}")
 
     print()
     cprint(SYSTEM_COLOR, "  G  — Generate a random persona")
@@ -323,55 +364,77 @@ def _edit_custom_persona(key: str) -> str:
 
 # ── Observe mode ──────────────────────────────────────────────────────────────
 
-def run_observe(room_state: RoomState) -> RoomState:
-    """Personas converse with each other for a few rounds while you watch."""
+_DEFAULT_OBSERVE_ROUNDS = 3
+
+
+def run_observe(
+    room_state: RoomState,
+    observe_topic: str = "",
+    observe_rounds: int = 0,
+) -> RoomState:
+    """
+    Personas converse with each other while the moderator watches.
+
+    observe_topic:  optional seed question/topic for the discussion
+    observe_rounds: number of full rounds to run (default: _DEFAULT_OBSERVE_ROUNDS)
+    Ctrl+C always stops early.
+    """
     active = room_state["active_personas"]
     if len(active) < 2:
         cprint(SYSTEM_COLOR, "[Observe requires at least 2 personas in the room.]")
         return room_state
 
-    room_state = append_log(room_state, make_log_entry(
-        "system", "Moderator stepped back. Personas discussing amongst themselves.",
-    ))
+    rounds = observe_rounds if observe_rounds > 0 else _DEFAULT_OBSERVE_ROUNDS
+
+    # Determine seed content
+    seed = observe_topic
+    if not seed:
+        for entry in reversed(room_state["full_log"]):
+            if entry["type"] == "user":
+                seed = entry["content"]
+                break
+    if not seed:
+        seed = f"Share your honest thoughts on {room_state['topic']}."
+
+    round_label = f"{rounds} round{'s' if rounds != 1 else ''}"
+    log_note = f"Observing ({round_label}){': ' + observe_topic if observe_topic else ''}."
+    room_state = append_log(room_state, make_log_entry("system", log_note))
 
     cprint(SYSTEM_COLOR, f"\n{DIVIDER}")
-    cprint(SYSTEM_COLOR, "  [Observing — press Ctrl+C to stop]")
+    if observe_topic:
+        cprint(SYSTEM_COLOR, f"  Topic: \"{observe_topic}\"")
+    cprint(SYSTEM_COLOR, f"  [Observing for {round_label} — Ctrl+C to stop early]")
     cprint(SYSTEM_COLOR, f"{DIVIDER}\n")
 
     all_names = [
         room_state["personas"][k]["name"]
         for k in active if k in room_state["personas"]
     ]
-
-    last_user_content = ""
-    for entry in reversed(room_state["full_log"]):
-        if entry["type"] == "user":
-            last_user_content = entry["content"]
-            break
-
     speaker_list = " and ".join(all_names)
-    current_prompt = (
-        f"[The moderator has stepped back. Only {speaker_list} are in this room — "
-        f"speak only to each other. Continue the focus-group discussion about the PS5.] "
-        + (last_user_content if last_user_content else "Share your thoughts on the PS5.")
-    )
+
+    def _make_seed_prompt() -> str:
+        return (
+            f"[The moderator has stepped back. Only {speaker_list} are in this room — "
+            f"speak only to each other. The moderator wants you to discuss: \"{seed}\". "
+            f"If you disagree, don't just move on — negotiate, push back, and try to find "
+            f"what's genuinely fair. Make any agreement feel earned, not polite.]"
+        )
+
+    current_prompt = _make_seed_prompt()
+    round_count = 0
 
     try:
-        rounds = 3
-        last_speaker_key = None
-
-        for _ in range(rounds):
+        while round_count < rounds:
             for pkey in active:
-                if pkey == last_speaker_key and len(active) < 2:
-                    continue
-
                 ctx   = room_state["personas"][pkey]
                 color = persona_color(pkey)
 
-                print(f"{DIM}[{ctx['name']} is thinking...]{RESET}")
+                print(f"{DIM}[{ctx['name']} is thinking... (round {round_count + 1}/{rounds})]{RESET}")
+
                 thoughts, response, updated_history = generate_response_for_persona(
                     ctx, current_prompt, is_observe=True,
                     room_participants=all_names,
+                    topic_context=room_state["topic_context"],
                 )
 
                 if thoughts:
@@ -394,9 +457,10 @@ def run_observe(room_state: RoomState) -> RoomState:
                 current_prompt = (
                     f"[{ctx['name']} just said to {addressee}]: \"{response}\"\n"
                     f"[You are {addressee}. Respond directly to {ctx['name']}. "
-                    f"Only {speaker_list} are in this room.]"
+                    f"Only {speaker_list} are in this room. Keep the discussion on: \"{seed}\"]"
                 )
-                last_speaker_key = pkey
+
+            round_count += 1
 
     except KeyboardInterrupt:
         cprint(SYSTEM_COLOR, "\n[Observation stopped.]")
@@ -406,10 +470,25 @@ def run_observe(room_state: RoomState) -> RoomState:
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
+def _prompt_topic() -> tuple[str, str]:
+    """Ask the user for a discussion topic before entering the room."""
+    cprint(SYSTEM_COLOR, f"\n{DIVIDER}")
+    cprint(SYSTEM_COLOR, "  Discussion topic (press Enter for PlayStation 5):")
+    cprint(SYSTEM_COLOR, "  Examples: Nike Air Max · Miele espresso machines · Stoic philosophy")
+    try:
+        raw = input(f"\n{DIM}Topic{RESET} > ").strip()
+    except (KeyboardInterrupt, EOFError):
+        raw = ""
+    topic = raw if raw else DEFAULT_TOPIC
+    topic_context = fetch_topic_context(topic)
+    return topic, topic_context
+
+
 def run() -> None:
     print_banner()
 
     initial_keys = choose_initial_personas()
+    topic, topic_context = _prompt_topic()
 
     personas: Dict[str, PersonaContext] = {}
     full_reg = get_full_registry()
@@ -423,11 +502,14 @@ def run() -> None:
         "mode": "chat",
         "personas": personas,
         "full_log": [],
+        "topic": topic,
+        "topic_context": topic_context,
     }
 
     names = [personas[k]["name"] for k in initial_keys]
     cprint(SYSTEM_COLOR, f"\n{DIVIDER}")
     cprint(SYSTEM_COLOR, f"  Room: {', '.join(names)} ready")
+    cprint(SYSTEM_COLOR, f"  Topic: {room_state['topic']}")
     cprint(SYSTEM_COLOR, f"{DIVIDER}\n")
 
     while True:
@@ -464,12 +546,14 @@ def run() -> None:
                     for pkey, ctx in room_state["personas"].items()
                     if pkey in active
                 ]
+                cprint(SYSTEM_COLOR, "\n[Closing room...]")
                 if room_state["full_log"]:
+                    cprint(SYSTEM_COLOR, "[Generating summary, please wait...]")
                     filepath = save_chat_summary(room_state["full_log"], persona_names)
-                    cprint(SYSTEM_COLOR, f"\n[Summary saved to: {filepath}]")
+                    cprint(SYSTEM_COLOR, f"[Summary saved to: {filepath}]")
                 else:
-                    cprint(SYSTEM_COLOR, "\n[No conversation to save.]")
-                cprint(SYSTEM_COLOR, "[Session ended. Goodbye.]\n")
+                    cprint(SYSTEM_COLOR, "[No conversation to save.]")
+                cprint(SYSTEM_COLOR, "[Room closed. Goodbye.]\n")
                 sys.exit(0)
 
             elif cmd == "reset":
@@ -479,10 +563,15 @@ def run() -> None:
                     updated_personas = dict(room_state["personas"])
                     updated_personas[pkey] = {**ctx, "history": []}
                     room_state = {**room_state, "personas": updated_personas}
-                cprint(SYSTEM_COLOR, "[Session histories cleared for all personas in room.]")
+                cprint(SYSTEM_COLOR, "[Memory cleared — all personas reset to default.]")
 
             elif cmd == "observe":
-                room_state = run_observe(room_state)
+                room_state = run_observe(
+                    room_state,
+                    observe_topic=cmd_result.get("observe_topic", ""),
+                    observe_rounds=cmd_result.get("observe_rounds", 0),
+                )
+                print_hints()
 
             elif cmd == "focus":
                 pkey  = cmd_result["persona_key"]
@@ -533,6 +622,31 @@ def run() -> None:
                         "system", f"{ctx['name']} left the room.",
                     ))
 
+            elif cmd == "topic_set":
+                new_topic = cmd_result["topic"]
+                cprint(SYSTEM_COLOR, f"[Switching topic to: {new_topic}]")
+                new_ctx = fetch_topic_context(new_topic)
+                room_state = {**room_state, "topic": new_topic, "topic_context": new_ctx}
+                cprint(SYSTEM_COLOR, f"[Context loaded. Personas are now briefed on: {new_topic}]")
+                room_state = append_log(room_state, make_log_entry(
+                    "system", f"Topic changed to: {new_topic}",
+                ))
+
+            elif cmd == "topic_clear":
+                from core.topic_context import DEFAULT_TOPIC, fetch_topic_context as _ftc
+                room_state = {**room_state, "topic": DEFAULT_TOPIC, "topic_context": _ftc(DEFAULT_TOPIC)}
+                cprint(SYSTEM_COLOR, f"[Topic reset to default: {DEFAULT_TOPIC}]")
+
+            elif cmd == "help":
+                _print_help()
+
+            elif cmd == "did_you_mean":
+                suggestion = cmd_result["suggestion"]
+                cprint(SYSTEM_COLOR, f"[Did you mean: {suggestion}]")
+
+            elif cmd == "usage_hint":
+                cprint(SYSTEM_COLOR, f"[{cmd_result['hint']}]")
+
             elif cmd in ("add_unknown", "kick_unknown", "focus_unknown"):
                 pname = cmd_result["persona_name"]
                 known = ", ".join(f"@{k[1:]}" for k in mention_map)
@@ -561,6 +675,7 @@ def run() -> None:
             thoughts, response, updated_history = generate_response_for_persona(
                 ctx, user_input, is_observe=False,
                 room_participants=all_room_names,
+                topic_context=room_state["topic_context"],
             )
 
             if thoughts:
@@ -586,6 +701,8 @@ def run() -> None:
             if observers:
                 verb = "is" if len(observers) == 1 else "are"
                 cprint(SYSTEM_COLOR, f"  [{', '.join(observers)} {verb} observing]")
+
+        print_hints()
 
 
 if __name__ == "__main__":

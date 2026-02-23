@@ -185,15 +185,70 @@ class TestDetectCommand:
         r = detect_command("!focus @phantom")
         assert r["cmd"] == "focus_unknown"
 
+    def test_observe_bare(self):
+        r = detect_command("!observe")
+        assert r["cmd"] == "observe"
+        assert "observe_topic" not in r
+        assert "observe_rounds" not in r
+
+    def test_observe_with_topic(self):
+        r = detect_command('!observe "Which PS generation was best?"')
+        assert r["cmd"] == "observe"
+        assert r["observe_topic"] == "Which PS generation was best?"
+        assert "observe_rounds" not in r
+
+    def test_observe_with_rounds(self):
+        r = detect_command("!observe 5")
+        assert r["cmd"] == "observe"
+        assert r["observe_rounds"] == 5
+        assert "observe_topic" not in r
+
+    def test_observe_with_topic_and_rounds(self):
+        r = detect_command('!observe "What would make the PS5 better?" 4')
+        assert r["cmd"] == "observe"
+        assert r["observe_topic"] == "What would make the PS5 better?"
+        assert r["observe_rounds"] == 4
+
+    def test_observe_rounds_minimum_1(self):
+        r = detect_command("!observe 0")
+        assert r["observe_rounds"] == 1
+
     def test_normal_message_returns_none(self):
         assert detect_command("What do you think of the PS5?") is None
         assert detect_command("hello") is None
         assert detect_command("") is None
 
-    def test_partial_commands_return_none(self):
+    def test_partial_commands_return_none_or_suggestion(self):
         assert detect_command("!ad @lena") is None
         assert detect_command("add @lena") is None
-        assert detect_command("!add lena") is None   # missing @
+        # missing @ — should return did_you_mean, not None
+        r = detect_command("!add lena")
+        assert r is not None
+        assert r["cmd"] == "did_you_mean"
+        assert "@lena" in r["suggestion"]
+
+    def test_did_you_mean_kick_no_at(self):
+        r = detect_command("!kick lena")
+        assert r["cmd"] == "did_you_mean"
+        assert "!kick @lena" in r["suggestion"]
+
+    def test_did_you_mean_focus_no_at(self):
+        r = detect_command("!focus marcus")
+        assert r["cmd"] == "did_you_mean"
+        assert "!focus @marcus" in r["suggestion"]
+
+    def test_did_you_mean_bare_exit(self):
+        r = detect_command("exit")
+        assert r["cmd"] == "did_you_mean"
+        assert r["suggestion"] == "!exit"
+
+    def test_help_command(self):
+        assert detect_command("!help") == {"cmd": "help"}
+        assert detect_command("!?") == {"cmd": "help"}
+
+    def test_usage_hint_bare_add(self):
+        r = detect_command("!add")
+        assert r["cmd"] == "usage_hint"
 
 
 class TestDetectSwitch:

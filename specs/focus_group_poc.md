@@ -1,3 +1,204 @@
+# Focus Group Simulation — Technical Reference
+
+---
+
+## Architecture
+
+### Stack
+
+| Layer | Technology | Purpose |
+|---|---|---|
+| LLM Inference | Ollama + Llama 3.1 8B | Local, cost-free inference |
+| Persona Storage | ChromaDB | Persona documents and metadata (vector store) |
+| Session Memory | Redis | Conversation history per persona (rolling, TTL-based) |
+| Orchestration | LangGraph | Legacy single-persona graph (context assembly + response) |
+| Interface | Terminal (CLI) | Human moderator input/output |
+
+---
+
+### Module Map
+
+```
+FocusGroup/
+│
+├── main.py                  ← Entry point — room loop, all commands, colours
+│
+├── core/
+│   ├── room.py              ← RoomState / PersonaContext types + room management fns
+│   ├── nodes.py             ← LLM call, thinking extraction, room-constraint injection
+│   ├── persona_router.py    ← Command parsing (!add, !kick, !focus, !observe, !exit…)
+│   ├── persona_generator.py ← Random persona generation + interactive editing
+│   ├── persona_store.py     ← Custom persona save / load / delete / update
+│   ├── topic_context.py     ← Dynamic topic context fetching
+│   ├── summary.py           ← Chat summary generation + Markdown file writer
+│   ├── prompt_builder.py    ← System prompt assembly (persona identity + topic context)
+│   └── graph.py             ← LangGraph definition (single-persona legacy flow)
+│
+├── db/
+│   ├── chroma_client.py     ← ChromaDB init, upsert, retrieve
+│   └── redis_client.py      ← Redis session read / write / reset helpers
+│
+├── context/
+│   └── ps5_context.py       ← Static PS5 product context block (default topic)
+│
+├── personas/
+│   ├── female_23.json       ← Lena's persona definition
+│   ├── male_38.json         ← Marcus's persona definition
+│   ├── custom/              ← User-generated custom personas
+│   └── persona_template.json
+│
+├── chat_summaries/          ← Auto-generated session summaries (created on !exit)
+├── tests/
+│   └── test_core.py         ← Unit tests (room logic, commands, thinking, summary)
+│
+├── personas_loader.py       ← Seeds persona JSONs into ChromaDB (run once)
+├── config.py                ← PERSONA_REGISTRY, PERSONA_MENTION_MAP, env vars
+└── requirements.txt
+```
+
+---
+
+### How the Room Constraint Works
+
+Each persona's system prompt has four layers assembled at load time:
+
+```
+[1] Persona identity      — who they are, their history, values
+[2] Behavioural anchors   — hesitation triggers, motivations, decision style
+[3] Topic context         — what the current discussion topic is, comparison points
+[4] Rules of engagement   — stay in character, be candid, concise response length
+```
+
+On every LLM call, two more blocks are appended at runtime:
+
+```
+[5] Room constraint       — "The ONLY people present are X and Y. Do not address anyone else."
+[6] Thinking instruction  — "Wrap internal reasoning in <think>…</think> before responding."
+```
+
+Block 5 prevents the model from hallucinating participants who aren't in the room.
+
+---
+
+### Thinking Display
+
+If the model wraps its reasoning in `<think>…</think>` tags, it is:
+- **Stripped from the visible response** (persona only says what they'd say out loud)
+- **Shown in the terminal in dark grey** before the response
+- **Logged and included** in the chat summary under each persona's entry
+
+---
+
+### Observe Mode
+
+`!observe` puts the moderator in the background and lets the personas speak directly to each other. Each round, every active persona responds to the last thing said by the previous speaker. The seed prompt is taken from the last moderator message, or a generic prompt if none exists.
+
+Rounds are counted per full loop through all active personas. `!observe 5` runs 5 full rounds; `!observe` defaults to 3.
+
+---
+
+## Configuration Reference
+
+All settings live in `config.py` or can be overridden via environment variable.
+
+| Variable | Default | Description |
+|---|---|---|
+| `OLLAMA_MODEL` | `llama3.1:8b` | Model name for Ollama |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
+| `REDIS_URL` | `redis://localhost:6379` | Redis connection string |
+| `REDIS_SESSION_TTL` | `86400` (24h) | History TTL in seconds |
+| `CHROMA_PERSIST_PATH` | `./.chromadb` | ChromaDB storage path |
+
+Optional `.env` override file:
+
+```
+OLLAMA_MODEL=llama3.1:8b
+OLLAMA_BASE_URL=http://localhost:11434
+REDIS_URL=redis://localhost:6379
+REDIS_SESSION_TTL=86400
+CHROMA_PERSIST_PATH=./.chromadb
+```
+
+---
+
+## Adding a New Persona
+
+### 1. Create the persona JSON
+
+Copy `personas/persona_template.json`. The file must have this top-level structure:
+
+```json
+{
+  "id": "persona_yuki_id",
+  "document": "Yuki is a ...",
+  "metadata": {
+    "name": "Yuki",
+    "evaluation_framework": {
+      "primary_filter": "value for money"
+    },
+    "psychographics_decision_style": "...",
+    "purchase_hesitation_triggers": ["price", "..."],
+    "emotional_language_resonance": ["quality", "..."],
+    "motivations": ["family", "..."]
+  }
+}
+```
+
+Place the file in `personas/`.
+
+### 2. Register the persona in `config.py`
+
+Add an entry to `PERSONA_REGISTRY`:
+
+```python
+"3": {
+    "name": "Yuki",
+    "id": "persona_yuki_id",
+    "file": "yuki.json",
+    "redis_key": "session:yuki:messages",
+    "brief": "28yo Tokyo-based engineer · budget-conscious · mobile-first",
+}
+```
+
+Add the `@mention` mapping to `PERSONA_MENTION_MAP`:
+
+```python
+"@yuki": "3"
+```
+
+### 3. Seed ChromaDB
+
+```bash
+python personas_loader.py
+```
+
+Yuki is now available in the persona selection menu and as `!add @yuki`.
+
+---
+
+## Chat Summary Format
+
+Saved to `chat_summaries/chat_YYYYMMDD_HHMMSS.md`:
+
+```
+# Focus Group Session Summary
+*Generated: 2026-02-23 14:10:22*
+
+---
+
+## Executive Summary
+[3–5 paragraph analysis: themes, agreements, tensions, overall sentiment]
+
+---
+
+## Full Chat Log
+[Every message with timestamps, including each persona's thinking in grey blockquotes]
+```
+
+---
+
+---
+
 # Plan: Focus Group Simulation POC
 
 ## Task Description
@@ -809,7 +1010,7 @@ Llama 3.1 8B is the default. If persona consistency feels shallow, switch to 70B
 
 **Environment overrides (optional `.env` file):**
 ```
-OLLAMA_MODEL=llama3.1
+OLLAMA_MODEL=llama3.1:8B
 OLLAMA_BASE_URL=http://localhost:11434
 REDIS_URL=redis://localhost:6379
 REDIS_SESSION_TTL=86400

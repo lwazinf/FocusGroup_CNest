@@ -29,7 +29,28 @@ Hmm, this is interesting. I feel... [your genuine reaction as this character]
 </think>
 
 [Your actual spoken response here]
+
+== RESPONSE LENGTH ==
+Say what needs to be said — no more. A simple question: 1–3 sentences. Something complex or contested: a short paragraph or two at most. No padding, no restating what was just said. If you've made your point, stop.
 """
+
+# After this many exchanges, the persona can start hinting they need to leave
+_LONG_SESSION_THRESHOLD = 15
+
+_LONG_SESSION_HINT = """
+
+[You've been in this focus group for quite a while now. At some natural point it would be realistic to mention you have something coming up — a meeting, needing to pick up the kids, a call you're expecting, etc. You don't have to leave immediately, but you can plant the seed. Only do this if it fits naturally into the conversation; don't force it every turn.]
+"""
+
+
+def _topic_block(topic_context: str) -> str:
+    """Wrap topic context in a clearly labelled prompt section."""
+    return f"""
+
+== CURRENT DISCUSSION TOPIC ==
+{topic_context.strip()}
+"""
+
 
 def _room_constraint(participant_names: List[str]) -> str:
     """Build a system-prompt block that locks the model to the actual room roster."""
@@ -126,6 +147,7 @@ def generate_response_for_persona(
     input_text: str,
     is_observe: bool = False,
     room_participants: List[str] = None,
+    topic_context: str = "",
 ) -> Tuple[str, str, List[dict]]:
     """
     Generate a response for a single persona.
@@ -148,9 +170,16 @@ def generate_response_for_persona(
     )
 
     system_with_thinking = persona_ctx["system_prompt"]
+    if topic_context:
+        system_with_thinking += _topic_block(topic_context)
     if room_participants:
         system_with_thinking += _room_constraint(room_participants)
     system_with_thinking += THINKING_INSTRUCTION
+
+    # After many exchanges, hint that the persona can naturally mention needing to leave
+    exchange_count = len(persona_ctx["history"]) // 2
+    if exchange_count >= _LONG_SESSION_THRESHOLD:
+        system_with_thinking += _LONG_SESSION_HINT
 
     messages = [SystemMessage(content=system_with_thinking)]
     for msg in persona_ctx["history"]:

@@ -13,14 +13,16 @@ PERSONA_REGISTRY = {
         "name": "Lena",
         "id": "persona_german_transfer_student_23",
         "file": "female_23.json",
-        "redis_key": "session:lena:messages"
+        "redis_key": "session:lena:messages",
+        "brief": "23yo German student · Cape Town · competitive gamer & streamer",
     },
     "2": {
         "name": "Marcus",
         "id": "persona_designer_dad_38_refined",
         "file": "male_38.json",
-        "redis_key": "session:marcus:messages"
-    }
+        "redis_key": "session:marcus:messages",
+        "brief": "38yo designer dad · Apple loyalist · stability over novelty",
+    },
 }
 
 PERSONA_MENTION_MAP = {

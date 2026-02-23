@@ -19,6 +19,7 @@ TRAITS = [
     ("occupation",          "Occupation",         "str"),
     ("document",            "Background Story",   "str"),
     ("gaming_level",        "Gaming Level",       "str"),
+    ("disagreeable",        "Disagreeable (0–1)", "float"),
     ("core_interests",      "Core Interests",     "list"),
     ("primary_filter",      "Evaluation Filter",  "str"),
     ("decision_style",      "Decision Style",     "str"),
@@ -66,6 +67,7 @@ Use this exact structure:
   "occupation": "...",
   "document": "...",
   "gaming_level": "...",
+  "disagreeable": <number between 0.0 and 1.0>,
   "core_interests": ["...", "...", "..."],
   "primary_filter": "...",
   "decision_style": "...",
@@ -77,6 +79,7 @@ Use this exact structure:
 Guidelines:
 - document: 3-4 sentences describing who this person is, their background, and their relationship to gaming and technology
 - gaming_level: one of "non-gamer", "casual", "moderate", "enthusiast"
+- disagreeable: float from 0.0 (totally agreeable, finds common ground easily) to 1.0 (strongly opinionated, pushes back hard, negotiates firmly). Choose a realistic value for this person's personality.
 - primary_filter: what matters most to them in a purchase decision (e.g. "value_for_money", "family_utility", "performance", "design_quality")
 - decision_style: how they make decisions (e.g. "research_intensive", "impulse_driven", "family_consensus", "peer_recommendation")
 - Be creative and diverse — avoid stereotypical tech bros or hardcore gamers. Think: parents, professionals, students, creatives, from all over the world.
@@ -101,6 +104,11 @@ def _normalise_persona(raw: dict) -> dict:
     occupation = raw.get("occupation") if isinstance(raw.get("occupation"), str) else "Professional"
     document = raw.get("document") if isinstance(raw.get("document"), str) else f"{name} is a {age}-year-old {occupation}."
     gaming_level = raw.get("gaming_level") if isinstance(raw.get("gaming_level"), str) else "casual"
+    try:
+        disagreeable = float(raw.get("disagreeable", 0.5))
+        disagreeable = max(0.0, min(1.0, disagreeable))
+    except (TypeError, ValueError):
+        disagreeable = 0.5
 
     def _to_list(val):
         if isinstance(val, list):
@@ -126,6 +134,7 @@ def _normalise_persona(raw: dict) -> dict:
         "occupation": occupation,
         "document": document,
         "gaming_level": gaming_level,
+        "disagreeable": disagreeable,
         "core_interests": core_interests,
         "primary_filter": primary_filter,
         "decision_style": decision_style,
@@ -162,6 +171,7 @@ def _fallback_random_persona() -> dict:
         "occupation": occupation,
         "document": document,
         "gaming_level": gaming_level,
+        "disagreeable": round(random.uniform(0.1, 0.9), 2),
         "core_interests": random.sample(
             ["music", "cooking", "fitness", "travel", "movies", "reading",
              "photography", "art", "technology", "fashion", "sports", "nature"],
@@ -302,6 +312,15 @@ def edit_traits_interactive(persona: dict) -> dict | None:
             new_val = input("New value (comma-separated): ").strip()
             if new_val:
                 working[key] = [s.strip() for s in new_val.split(",") if s.strip()]
+        elif typ == "float":
+            print(f"Current {label}: {current}")
+            new_val = input("New value (0.0–1.0): ").strip()
+            if new_val:
+                try:
+                    v = float(new_val)
+                    working[key] = max(0.0, min(1.0, v))
+                except ValueError:
+                    print("[Error: must be a number between 0.0 and 1.0]")
         elif typ == "int":
             print(f"Current {label}: {current}")
             new_val = input("New value: ").strip()

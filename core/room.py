@@ -16,6 +16,8 @@ class RoomState(TypedDict):
     mode: str                           # 'chat' or 'observe'
     personas: Dict[str, PersonaContext] # persona_key -> PersonaContext
     full_log: List[dict]                # complete log with thoughts
+    topic: str                          # current discussion topic (default: "PlayStation 5")
+    topic_context: str                  # fetched context block for topic
     # Each log entry: {timestamp, type, persona_key, persona_name, thoughts, content}
 
 

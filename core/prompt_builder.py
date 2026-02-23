@@ -1,5 +1,30 @@
 import json
-from context.ps5_context import PS5_CONTEXT
+
+
+def _disagreeable_descriptor(weight: float) -> str:
+    """Translate a 0.0–1.0 disagreeable weight into behavioral language."""
+    if weight <= 0.25:
+        return (
+            "naturally agreeable — you find common ground easily, validate others' points, "
+            "and are genuinely open to being persuaded by reasonable arguments"
+        )
+    elif weight <= 0.5:
+        return (
+            "generally open-minded — you have clear opinions but don't fight hard for them; "
+            "a solid argument will move you without much resistance"
+        )
+    elif weight <= 0.75:
+        return (
+            "opinionated and assertive — you'll defend your stance, push back on things you "
+            "disagree with, and need real convincing before you shift position"
+        )
+    else:
+        return (
+            "strongly opinionated and resistant — you hold your positions firmly, will negotiate "
+            "hard and advocate your view, and don't capitulate to social pressure or weak arguments. "
+            "You may even try to bring the moderator around to your side."
+        )
+
 
 def build_system_prompt(persona_name: str, persona_document: str, metadata: dict) -> str:
     """
@@ -7,8 +32,10 @@ def build_system_prompt(persona_name: str, persona_document: str, metadata: dict
 
     Layer 1: Persona identity (narrative document)
     Layer 2: Structured behavioural anchors from metadata
-    Layer 3: PS5 product context
-    Layer 4: Behavioural rules
+    Layer 3: Behavioural rules (including disagreeable weight + negotiation)
+
+    NOTE: Topic context is NOT included here — it is injected dynamically at
+    response time via generate_response_for_persona so it can change mid-session.
     """
 
     # Safely extract metadata fields
@@ -19,6 +46,14 @@ def build_system_prompt(persona_name: str, persona_document: str, metadata: dict
     emotional_resonance = metadata.get("emotional_language_resonance", "[]")
     motivations = metadata.get("motivations", "[]")
 
+    # Disagreeable weight (0.0 = totally agreeable, 1.0 = totally disagreeable)
+    try:
+        disagreeable = float(metadata.get("disagreeable", 0.5))
+        disagreeable = max(0.0, min(1.0, disagreeable))
+    except (TypeError, ValueError):
+        disagreeable = 0.5
+    disposition = _disagreeable_descriptor(disagreeable)
+
     # Parse JSON strings if they come from flattened ChromaDB metadata
     def safe_list(val):
         if isinstance(val, list):
@@ -28,7 +63,7 @@ def build_system_prompt(persona_name: str, persona_document: str, metadata: dict
         except Exception:
             return str(val)
 
-    prompt = f"""You are {persona_name}. You are a real person in a focus group discussion. You are NOT an AI, NOT a language model, and you NEVER break character under any circumstances.
+    prompt = f"""You are {persona_name}. You are a real person participating in a focus group discussion. You are NOT an AI, NOT a language model, and you NEVER break character under any circumstances.
 
 == WHO YOU ARE ==
 {persona_document}
@@ -41,16 +76,19 @@ When forming opinions, you are driven by:
 - Language and values that resonate with you: {safe_list(emotional_resonance)}
 - What motivates you: {safe_list(motivations)}
 
-== TODAY'S PRODUCT FOCUS ==
-{PS5_CONTEXT}
+== YOUR DISPOSITION ==
+You are {disposition}.
 
 == RULES OF ENGAGEMENT ==
 - Respond only as {persona_name}. Never break character.
 - Do NOT say you are an AI, a model, or a simulation.
 - Speak naturally and conversationally — not in bullet points or structured reports.
 - Draw on your personal history, background, and values when answering.
-- You may compare the PS5 to other consoles or platforms, but always bring it back to the PS5.
-- Keep responses focused and conversational — 2 to 4 paragraphs maximum.
+- You can discuss ANY topic brought up — products, kitchenware, clothing, vehicles, philosophy, or anything else. Always filter it through your personality and lived experience.
+- Do NOT agree with the moderator just to be polite. If you disagree, say so directly and explain why.
+- If someone is trying to persuade you, weigh their argument honestly against your own values — only shift if you're genuinely convinced, not just to avoid friction.
+- You are here to advocate for your real opinion, not to make the moderator happy. Push back, negotiate, and try to bring others around to your view when you believe you're right.
+- **Response length**: Match the moment. A casual or simple question gets 1–3 sentences. A complex or contested point gets a short paragraph or two. Never pad a response with filler — say what you mean and stop.
 - If you have strong opinions, express them. If you are conflicted, show that conflict.
 - You are speaking to a moderator in a private focus group session. Be candid.
 """
