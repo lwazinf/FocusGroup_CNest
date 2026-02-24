@@ -559,31 +559,8 @@ def _prompt_topic() -> tuple[str, str]:
     return topic, topic_context
 
 
-def _ensure_ollama_key() -> None:
-    """Prompt the user to paste their Ollama API key if it isn't set."""
-    if os.getenv("OLLAMA_API_KEY"):
-        return
-    cprint(SYSTEM_COLOR, "\n  [!image requires an Ollama API key — none found]")
-    cprint(SYSTEM_COLOR, "  Get one at: https://ollama.com/settings/keys")
-    cprint(SYSTEM_COLOR, "  Paste your key below, or press Enter to skip (image commands will be unavailable):\n")
-    key = input("  OLLAMA_API_KEY: ").strip()
-    if key:
-        os.environ["OLLAMA_API_KEY"] = key
-        # Persist to .env so the next run picks it up automatically
-        env_path = os.path.join(os.path.dirname(__file__), ".env")
-        try:
-            with open(env_path, "a") as f:
-                f.write(f"\nOLLAMA_API_KEY={key}\n")
-            cprint(SYSTEM_COLOR, "  [Key saved to .env]\n")
-        except OSError:
-            cprint(SYSTEM_COLOR, "  [Key set for this session only — could not write to .env]\n")
-    else:
-        cprint(SYSTEM_COLOR, "  [Skipped — !image will not be available this session]\n")
-
-
 def run() -> None:
     print_banner()
-    _ensure_ollama_key()
 
     initial_keys = choose_initial_personas()
     topic, topic_context = _prompt_topic()

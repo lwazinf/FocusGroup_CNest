@@ -1,269 +1,348 @@
 # FocusGroup
 
-A terminal-based AI focus group. You're the moderator — invite synthetic personas into a room, ask them about any product or topic, and watch them respond in character. Load an ad image and they'll react to it through their own lens. Sessions are saved as Markdown summaries.
+You are the moderator. The AI personas are your focus group.
+
+Ask them anything — about an ad, a product, a price point. Load an image and they'll react to it in character. Every session is saved as a summary you can read later.
 
 ---
 
-## Quick Start
+## What you need to know before starting
 
-### 1. Clone the repo
+This app runs in your computer's **terminal** (also called the command line or command prompt). You type commands and press Enter to run them. That's all you need to know.
 
-```bash
-git clone <repo-url>
-cd FocusGroup
+> **Already familiar with terminals and Python?** Jump straight to [Installation](#installation).
+
+---
+
+## What you need to install first
+
+The app uses three separate services. All are free.
+
+| What | What it does | Download |
+|---|---|---|
+| **Python 3.11+** | Runs the app | [python.org/downloads](https://python.org/downloads) |
+| **Ollama** | Powers the AI personas | [ollama.com/download](https://ollama.com/download) |
+| **Redis** | Remembers the conversation | See instructions below |
+| **Ollama API key** | Lets personas see and react to images | [ollama.com/settings/keys](https://ollama.com/settings/keys) — free account needed |
+
+> **What is Redis?**
+> It's a small background service that stores the conversation history while you're in a session. Think of it as the app's short-term memory.
+
+---
+
+## Installation
+
+Find your operating system below and follow those steps only.
+
+---
+
+### 🍎 macOS
+
+#### 1. Open Terminal
+
+Press **Command + Space**, type `Terminal`, press Enter.
+
+#### 2. Install Homebrew (if you don't have it)
+
+Homebrew is a free tool that makes installing software on a Mac easier. If you're not sure whether you have it, paste this into Terminal and press Enter:
+
+```
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-### 2. Install everything
+If it says "command not found: brew" after — run the line above. If it's already installed, skip this.
 
-```bash
+#### 3. Install Ollama
+
+Download the macOS installer from **[ollama.com/download](https://ollama.com/download)** and run it like any other app.
+
+#### 4. Install Redis
+
+In Terminal:
+
+```
+brew install redis
+brew services start redis
+```
+
+The second command makes Redis start automatically whenever you log in.
+
+#### 5. Get the project files
+
+In Terminal, navigate to where you want the project folder to live, then:
+
+```
+git clone https://github.com/lwazinf/FocusGroup_CNest.git
+cd FocusGroup_CNest
+```
+
+> Don't have git? Install it with `brew install git`.
+
+#### 6. Run the setup script
+
+```
 chmod +x setup.sh
 ./setup.sh
 ```
 
-`setup.sh` will:
-- Check Python 3.11+, Ollama, and Redis are available
-- Create a `.venv` virtual environment and install all Python packages
-- Pull the `llama3.1:8b` Ollama model if not already downloaded
-- Create a `.env` file from `.env.example`
-- Seed the persona database (ChromaDB)
+The script will scan your system, install all Python packages, pull the AI model, and ask for your Ollama API key. **Follow the prompts on screen.**
 
-> **First time?** After setup, open `.env` and add your `OLLAMA_API_KEY` if you want to use the `!image` command. [Get a key here.](https://ollama.com/settings/keys)
+> **Ollama API key:** The setup script will pause and ask you to paste your key. Get one free at [ollama.com/settings/keys](https://ollama.com/settings/keys) — log in, click **New key**, copy it.
 
-### 3. Start services
+---
 
-```bash
-ollama serve      # terminal 1
-redis-server      # terminal 2
+### 🐧 Linux (Ubuntu / Debian / Fedora / Arch)
+
+#### 1. Open your terminal
+
+Use whatever terminal emulator you prefer.
+
+#### 2. Install Ollama
+
+```
+curl -fsSL https://ollama.com/install.sh | sh
 ```
 
-### 4. Run
+#### 3. Install Redis
+
+**Ubuntu / Debian:**
+```
+sudo apt update && sudo apt install redis-server
+sudo systemctl enable --now redis-server
+```
+
+**Fedora:**
+```
+sudo dnf install redis
+sudo systemctl enable --now redis
+```
+
+**Arch Linux:**
+```
+sudo pacman -S redis
+sudo systemctl enable --now redis
+```
+
+#### 4. Get the project files
+
+```
+git clone https://github.com/lwazinf/FocusGroup_CNest.git
+cd FocusGroup_CNest
+```
+
+#### 5. Run the setup script
+
+```
+chmod +x setup.sh
+./setup.sh
+```
+
+The script detects your distro and package manager, installs everything it can, and walks you through the rest. **Follow the prompts on screen.**
+
+---
+
+### 🪟 Windows
+
+#### 1. Install Python
+
+Download from [python.org/downloads](https://python.org/downloads).
+
+During installation, **check the box that says "Add Python to PATH"** — this is important.
+
+#### 2. Install Ollama
+
+Download the Windows installer from [ollama.com/download](https://ollama.com/download) and run it.
+
+#### 3. Install Redis
+
+Redis doesn't have an official Windows installer. Pick whichever option suits you:
+
+**Option A — Memurai** (easiest for Windows)
+Download and install from [memurai.com/get-memurai](https://www.memurai.com/get-memurai). It runs as a system service in the background automatically.
+
+**Option B — WSL2** (recommended if you're comfortable with it)
+WSL2 lets you run Linux inside Windows, which makes Redis trivial to install.
+1. Open PowerShell as Administrator and run: `wsl --install`
+2. Restart your computer
+3. Open the Ubuntu app that was installed, then run:
+   ```
+   sudo apt install redis-server
+   sudo service redis-server start
+   ```
+
+#### 4. Get the project files
+
+Open **PowerShell** (press Windows + X, then click "Windows PowerShell"), then:
+
+```
+git clone https://github.com/lwazinf/FocusGroup_CNest.git
+cd FocusGroup_CNest
+```
+
+> Don't have git? Install it from [git-scm.com/download/win](https://git-scm.com/download/win).
+
+#### 5. Run the setup script
+
+If PowerShell says "running scripts is disabled", first run:
+```
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+Then run the setup:
+```
+.\setup.ps1
+```
+
+The script installs all Python packages, pulls the AI model, and asks for your API key. **Follow the prompts on screen.**
+
+---
+
+## Manual setup (any OS)
+
+If you'd rather do it step by step instead of using the install script:
 
 ```bash
-# bash / zsh
-source .venv/bin/activate
+# 1. Create a Python virtual environment
+python3 -m venv .venv
 
-# fish
-source .venv/bin/activate.fish
+# 2. Activate it
+source .venv/bin/activate          # macOS / Linux (bash, zsh)
+source .venv/bin/activate.fish     # macOS / Linux (fish)
+.\.venv\Scripts\Activate.ps1       # Windows (PowerShell)
+
+# 3. Install packages
+pip install -r requirements.txt
+
+# 4. Copy the config template
+cp .env.example .env
+# Open .env and add your OLLAMA_API_KEY
+
+# 5. Pull the AI model (Ollama must be running)
+ollama pull llama3.1:8b
+
+# 6. Load the personas into the database (first time only)
+python personas_loader.py
+```
+
+---
+
+## Running the app
+
+You need three things running at the same time — open three terminal windows (or tabs).
+
+**Terminal 1 — Ollama**
+```
+ollama serve
+```
+
+**Terminal 2 — Redis**
+```
+redis-server
+```
+
+> On macOS with Homebrew: if you ran `brew services start redis` during setup, Redis is already running in the background. You can skip this terminal.
+> On Windows with Memurai: Redis is running as a service automatically. Skip this too.
+
+**Terminal 3 — The app**
+```
+# Activate your environment first (every time)
+source .venv/bin/activate          # bash / zsh
+source .venv/bin/activate.fish     # fish
+.\.venv\Scripts\Activate.ps1       # Windows
 
 python main.py
 ```
 
 ---
 
-## Requirements
+## How to use it
 
-| Dependency | Why it's needed | Install |
-|---|---|---|
-| Python 3.11+ | Runs the app | [python.org](https://python.org) |
-| [Ollama](https://ollama.com) | Local LLM inference for personas | [ollama.com/download](https://ollama.com/download) |
-| `llama3.1:8b` | The model personas use | `ollama pull llama3.1:8b` |
-| Redis | Session history and image cache | `brew install redis` / `apt install redis-server` |
-| Ollama API key | Image analysis via `!image` (optional) | [ollama.com/settings/keys](https://ollama.com/settings/keys) |
+When the app starts, it will ask you which personas to invite into the room. Type the numbers you want (e.g. `1 2` for both).
 
----
+Then type your topic (or press Enter for the default: PlayStation 5).
 
-## Manual Setup
+Once you're in the room, just type your questions and press Enter.
 
-If you prefer step-by-step over the install script:
+### Room commands
 
-```bash
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate      # or: source .venv/bin/activate.fish
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Copy environment template and fill in your values
-cp .env.example .env
-
-# Pull the Ollama model
-ollama pull llama3.1:8b
-
-# Seed personas into ChromaDB (first time only)
-python personas_loader.py
-```
-
----
-
-## How It Works
-
-1. At startup, choose which personas to invite into the room.
-2. Set a discussion topic (default: PlayStation 5) or press Enter to skip.
-3. Type your question — all active personas respond in character.
-4. Use room commands to control who speaks, what they discuss, and what they see.
-5. Type `!exit` to close the room and save a Markdown summary.
-
----
-
-## Room Commands
-
-Type `!help` at any time while the app is running to see all commands.
-
-| Command | Description |
+| Command | What it does |
 |---|---|
 | `!add @name` | Add a persona to the room |
 | `!kick @name` | Remove a persona from the room |
-| `!observe` | Watch personas discuss with each other (3 rounds) |
-| `!observe "topic"` | Observe with a seeded question |
-| `!observe [n]` | Observe for n rounds |
-| `!focus @name` | Direct all questions to one persona only |
-| `!focus` | Clear focus — all active personas respond again |
-| `!topic [text]` | Change the discussion topic mid-session |
-| `!topic` | Reset to the default topic |
-| `!image <path>` | Load an ad image — personas will react to it in character |
-| `!image clear` | Remove all images from the room |
-| `!images` | List all images currently loaded |
-| `!reset` / `!clear` | Wipe conversation history for all active personas |
-| `!exit` | Close the room and save a Markdown summary |
-| `!help` | Show all commands in-app |
+| `!observe` | Watch the personas talk to each other for 3 rounds |
+| `!observe "question"` | Observe with a specific seed question |
+| `!observe 5` | Observe for 5 rounds |
+| `!focus @name` | Talk to one persona only (others watch) |
+| `!focus` | Go back to talking to everyone |
+| `!topic your topic` | Change what you're discussing |
+| `!image /path/to/image.jpg` | Load an ad image — personas will react to it |
+| `!image clear` | Remove the image from the room |
+| `!images` | See what images are loaded |
+| `!reset` | Clear the conversation history |
+| `!exit` | End the session and save a summary |
+| `!help` | Show all commands inside the app |
 
 **Available personas:** `@lena`, `@marcus`
 
-> **Tip:** You can combine a message and an image in one line:
-> `Tell me what you think about this ad !image '/path/to/ad.png'`
+> **Tip:** You can combine a message and an image in one go:
+> `What do you think of this ad? !image '/Users/you/Desktop/ad.png'`
+>
+> On a Mac, you can drag a file from Finder into the terminal window to paste its path automatically.
 
 ---
 
-## Personas
+## The personas
 
-### Lena — `@lena`
+### Lena  (`@lena`)
 
-| | |
-|---|---|
-| Age | 23 |
-| Background | German transfer student, Cape Town |
-| Role | YouTube content creator |
-| Ecosystem | Android |
-| Gaming | Competitive, deeply immersed |
+23-year-old German transfer student living in Cape Town. YouTube content creator, competitive gamer, Android user. She evaluates everything through a **performance and specs lens**. Direct, opinionated, and not easily convinced.
 
-Evaluates products through a **performance and content-creation lens**. Spec-driven, analytical, and skeptical of closed ecosystems. Direct and holds her ground.
+### Marcus  (`@marcus`)
+
+38-year-old digital product designer, married with two kids, Apple ecosystem. He looks at things like a designer — **quality, longevity, and family value** matter more than specs. Thoughtful and resistant to hype.
 
 ---
 
-### Marcus — `@marcus`
+## Loading ad images
 
-| | |
-|---|---|
-| Age | 38 |
-| Background | Digital Product Designer, married with kids |
-| Ecosystem | Apple |
-| Gaming | Cultural observer, casual |
+The `!image` command sends the image to an AI vision model, which produces a detailed, neutral analysis — layout, colours, typography, copy, deals, brand prominence — and shares that brief with every persona. They each react in character.
 
-Evaluates products through **family utility, design quality, and long-term value**. Deliberate and resistant to hype — he weighs things like a design object.
-
----
-
-## Example Session
-
-```
-Who would you like to start with?
-  1. Lena     — 23yo transfer student, streamer, Android
-  2. Marcus   — 38yo designer dad, Apple, casual gamer
-
-Enter numbers (e.g. '1 2' for both): 1 2
-
-[Loading Lena...]
-[Loading Marcus...]
-
-──────────────────────────────────────────────────────────
-  Room: Lena, Marcus ready
-  Topic: PlayStation 5
-──────────────────────────────────────────────────────────
-
-You → [Lena, Marcus]: Would you buy a PS5?
-
-[Lena is thinking...]
-  💭 The closed ecosystem thing is always my first reaction...
-
-Lena: The hardware is impressive but the closed ecosystem puts me off.
-      I can't mod, I can't customise — it feels like a walled garden
-      I'm paying $499 to enter.
-──────────────────────────────────────────────────────────
-
-You → [Lena, Marcus]: !observe
-
-  [Observing for 3 rounds — Ctrl+C to stop early]
-
-[Marcus is thinking...]
-
-Marcus: Lena, I hear you on the ecosystem point, but for me the
-        question is whether the exclusives justify it for my kids.
-──────────────────────────────────────────────────────────
-
-You → [Lena, Marcus]: !exit
-
-[Closing room...]
-[Generating summary, please wait...]
-[Summary saved to: chat_summaries/chat_20260224_141022.md]
-[Room closed. Goodbye.]
-```
-
----
-
-## Image Analysis
-
-Load any advertisement into the room and the personas will react to it in character.
-
-```
-You → [Lena, Marcus]: !image /path/to/ps5_ad.jpg
-
-[Analyzing ps5_ad.jpg...]
-[Image analyzed (1 image in room) — all personas are now briefed on: ps5_ad.jpg]
-
-You → [Lena, Marcus]: What's your first reaction to this ad?
-```
-
-**How it works:**
-
-1. `!image <path>` reads the file and sends it to Ollama Cloud (Qwen3-VL 235B) for analysis.
-2. The model produces a detailed structured brief: copy, typography, colour scheme, deal details, composition, brand presence, and more.
-3. This brief is injected into every persona's context — they can "see" the ad.
-4. Each persona reacts based on their own values and taste, not a shared script.
-5. The same image loaded again uses the cached analysis — no extra API call.
-
-**Setup:** Add to your `.env`:
-
-```
-OLLAMA_API_KEY=your_key_here
-OLLAMA_HOST=https://ollama.com
-```
+**Requires:** `OLLAMA_API_KEY` in your `.env` file. Get one free at [ollama.com/settings/keys](https://ollama.com/settings/keys).
 
 **Supported formats:** `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp` (max 20 MB)
 
 ---
 
-## Chat Summaries
+## Session summaries
 
-When you type `!exit`, the app generates an executive summary of the full session and saves it to:
+When you type `!exit`, the app automatically writes a Markdown summary to:
 
 ```
 chat_summaries/chat_YYYYMMDD_HHMMSS.md
 ```
 
-The file includes a 3–5 paragraph executive summary followed by the full timestamped chat log with each persona's visible thinking.
+The file includes an executive summary of the session and the full conversation log with each persona's internal thinking visible.
 
 ---
 
 ## Configuration
 
-All settings can be overridden in `.env`. The defaults work out of the box for a standard local setup.
+All settings live in your `.env` file. The defaults work out of the box for a standard local setup — you only need to change things if your setup is different.
 
-| Variable | Default | Description |
+| Setting | Default | What it controls |
 |---|---|---|
-| `OLLAMA_MODEL` | `llama3.1:8b` | Local model for persona responses |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Local Ollama server |
-| `REDIS_URL` | `redis://localhost:6379` | Redis connection string |
-| `CHROMA_PERSIST_PATH` | `./.chromadb` | ChromaDB local storage path |
-| `OLLAMA_API_KEY` | _(empty)_ | Ollama Cloud key — required for `!image` |
+| `OLLAMA_MODEL` | `llama3.1:8b` | Which local model the personas use |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Local Ollama server address |
+| `REDIS_URL` | `redis://localhost:6379` | Redis connection address |
+| `CHROMA_PERSIST_PATH` | `./.chromadb` | Where persona data is stored on disk |
+| `OLLAMA_API_KEY` | *(empty)* | Your Ollama Cloud key — needed for `!image` |
 | `OLLAMA_HOST` | `https://ollama.com` | Ollama Cloud endpoint |
-| `OLLAMA_VISION_MODEL` | `qwen3-vl:235b-cloud` | Vision model for image analysis |
 
 ---
 
-## Running Tests
+## Running tests
 
-Tests cover room state, command parsing, thinking extraction, and Markdown output. No live services required.
+Tests cover the core logic and don't need Ollama or Redis running.
 
 ```bash
 source .venv/bin/activate
@@ -272,14 +351,33 @@ python -m pytest tests/ -v
 
 ---
 
-## Adding a New Persona
+## Adding a new persona
 
 1. Copy `personas/persona_template.json` and fill it in.
 2. Add an entry to `PERSONA_REGISTRY` in `config.py`.
-3. Add the `@mention` mapping to `PERSONA_MENTION_MAP` in `config.py`.
-4. Run `python personas_loader.py` to seed it into ChromaDB.
+3. Add the `@mention` to `PERSONA_MENTION_MAP` in `config.py`.
+4. Run `python personas_loader.py` to register them.
 
-See [`specs/focus_group_poc.md`](specs/focus_group_poc.md) for the full persona schema and step-by-step guide.
+See [`specs/focus_group_poc.md`](specs/focus_group_poc.md) for the full schema guide.
+
+---
+
+## Troubleshooting
+
+**"Connection refused" when starting the app**
+→ Ollama or Redis isn't running. Make sure both are started before running `python main.py`.
+
+**"!image" says no key found**
+→ Open `.env` and add your key: `OLLAMA_API_KEY=your_key_here`
+
+**Personas say they can't see an image**
+→ The `!image` command must successfully analyse the image before you ask about it. Look for the `[Image analyzed...]` confirmation message. If it's missing, check your API key.
+
+**"Permission denied: setup.sh"**
+→ Run `chmod +x setup.sh` first, then `./setup.sh`.
+
+**Windows: "running scripts is disabled"**
+→ Open PowerShell and run: `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
 
 ---
 
