@@ -139,6 +139,9 @@ def detect_command(user_input: str, mention_map: dict = None):
     image_match = re.match(r'^!image\s+(.+)$', stripped, re.IGNORECASE)
     if image_match:
         source = image_match.group(1).strip()
+        # Strip surrounding single or double quotes (paths with spaces are often quoted)
+        if len(source) >= 2 and source[0] == source[-1] and source[0] in ("'", '"'):
+            source = source[1:-1]
         if source.lower() == "clear":
             return {"cmd": "image_clear"}
         return {"cmd": "image_load", "source": source}

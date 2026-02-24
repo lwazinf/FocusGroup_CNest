@@ -32,5 +32,6 @@ PERSONA_MENTION_MAP = {
 
 # Ollama Cloud (image analysis)
 # Set these in your environment — never hardcode keys here.
-OLLAMA_CLOUD_API_KEY  = os.getenv("OLLAMA_CLOUD_API_KEY", "")
-OLLAMA_CLOUD_BASE_URL = os.getenv("OLLAMA_CLOUD_BASE_URL", "http://localhost:11434")
+# Generate your API key at: https://ollama.com/settings/keys
+OLLAMA_CLOUD_API_KEY  = os.getenv("OLLAMA_API_KEY", "")
+OLLAMA_CLOUD_BASE_URL = os.getenv("OLLAMA_HOST", "https://ollama.com")

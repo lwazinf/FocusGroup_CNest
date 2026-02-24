@@ -20,7 +20,11 @@ Persona selection menu:
 import sys
 import json
 import os
+import re
 from typing import Dict
+
+from dotenv import load_dotenv
+load_dotenv()
 
 from core.room import (
     RoomState, PersonaContext,
@@ -555,8 +559,31 @@ def _prompt_topic() -> tuple[str, str]:
     return topic, topic_context
 
 
+def _ensure_ollama_key() -> None:
+    """Prompt the user to paste their Ollama API key if it isn't set."""
+    if os.getenv("OLLAMA_API_KEY"):
+        return
+    cprint(SYSTEM_COLOR, "\n  [!image requires an Ollama API key — none found]")
+    cprint(SYSTEM_COLOR, "  Get one at: https://ollama.com/settings/keys")
+    cprint(SYSTEM_COLOR, "  Paste your key below, or press Enter to skip (image commands will be unavailable):\n")
+    key = input("  OLLAMA_API_KEY: ").strip()
+    if key:
+        os.environ["OLLAMA_API_KEY"] = key
+        # Persist to .env so the next run picks it up automatically
+        env_path = os.path.join(os.path.dirname(__file__), ".env")
+        try:
+            with open(env_path, "a") as f:
+                f.write(f"\nOLLAMA_API_KEY={key}\n")
+            cprint(SYSTEM_COLOR, "  [Key saved to .env]\n")
+        except OSError:
+            cprint(SYSTEM_COLOR, "  [Key set for this session only — could not write to .env]\n")
+    else:
+        cprint(SYSTEM_COLOR, "  [Skipped — !image will not be available this session]\n")
+
+
 def run() -> None:
     print_banner()
+    _ensure_ollama_key()
 
     initial_keys = choose_initial_personas()
     topic, topic_context = _prompt_topic()
@@ -739,6 +766,18 @@ def run() -> None:
                 cprint(SYSTEM_COLOR, f"[Unknown persona @{pname}. Known: {known}]")
 
             continue
+
+        # ── Inline !image embedded in message ─────────────────────────────────
+        # e.g. "what do you think? !image '/path/to/ad.png'"
+        inline_img = re.search(r'!image\s+(.+)', user_input, re.IGNORECASE)
+        if inline_img:
+            raw_source = inline_img.group(1).strip()
+            if len(raw_source) >= 2 and raw_source[0] == raw_source[-1] and raw_source[0] in ("'", '"'):
+                raw_source = raw_source[1:-1]
+            room_state = _load_image(raw_source, room_state)
+            user_input = user_input[:inline_img.start()].strip()
+            if not user_input:
+                continue
 
         # ── Normal conversation ───────────────────────────────────────────────
         if not active:
