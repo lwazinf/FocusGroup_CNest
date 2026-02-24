@@ -7,6 +7,7 @@ redis>=5.0.0
 python-dotenv>=1.0.0
 requests>=2.25.0
 ddgs>=1.0.0
+rich>=13.0.0
 
 # Image analysis service
 ollama>=0.4.0

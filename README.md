@@ -323,9 +323,15 @@ The `!image` command sends the image to an AI vision model, which produces a det
 
 ---
 
+## Terminal output
+
+The app streams responses live as the model generates them. While a persona is reasoning internally you'll see a spinner; once their reply begins, tokens appear word-by-word in the persona's colour. Thoughts are shown dimmed below each response.
+
+---
+
 ## Session summaries
 
-When you type `!exit`, the app first prints a **session brief** — five bullet-point insights — directly to the terminal, then saves a full Markdown summary to:
+When you type `!exit`, the app first prints a **session brief** — five bullet-point insights in a bordered panel — directly to the terminal, then saves a full Markdown summary to:
 
 ```
 chat_summaries/chat_YYYYMMDD_HHMMSS.md
@@ -398,4 +404,4 @@ See [`specs/focus_group_poc.md`](specs/focus_group_poc.md) for the full schema g
 
 ---
 
-*Last updated: February 2026 — v1.1*
+*Last updated: February 2026 — v1.2*

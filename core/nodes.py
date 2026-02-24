@@ -1,4 +1,4 @@
-from typing import TypedDict, List, Tuple
+from typing import TypedDict, List, Tuple, Callable, Optional
 import re
 from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -166,6 +166,7 @@ def generate_response_for_persona(
     room_participants: List[str] = None,
     topic_context: str = "",
     image_context: str = "",
+    on_token: Optional[Callable[[str], None]] = None,
 ) -> Tuple[str, str, List[dict]]:
     """
     Generate a response for a single persona.
@@ -210,8 +211,25 @@ def generate_response_for_persona(
 
     messages.append(HumanMessage(content=input_text))
 
-    result = llm.invoke(messages)
-    raw_text = result.content
+    if on_token is None:
+        result = llm.invoke(messages)
+        raw_text = result.content
+    else:
+        raw_text = ""
+        thinking_closed = False
+        for chunk in llm.stream(messages):
+            token = chunk.content
+            if not isinstance(token, str):
+                continue
+            raw_text += token
+            if not thinking_closed:
+                if "</think>" in raw_text:
+                    thinking_closed = True
+                    after = raw_text.split("</think>", 1)[1]
+                    if after:
+                        on_token(after)
+            else:
+                on_token(token)
     thoughts, response_text = extract_thinking(raw_text)
 
     # Persist to Redis

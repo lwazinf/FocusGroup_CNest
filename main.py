@@ -24,6 +24,11 @@ import re
 import signal
 import warnings
 from typing import Dict
+from rich.console import Console
+from rich.live import Live
+from rich.text import Text
+from rich.panel import Panel
+from rich.table import Table
 
 # Suppress noisy ResourceWarnings from unclosed sockets in LangChain/httpx internals
 warnings.filterwarnings("ignore", category=ResourceWarning)
@@ -54,6 +59,8 @@ from db.chroma_client import get_persona
 from db.redis_client import load_history, reset_session
 from config import PERSONA_REGISTRY
 
+console = Console(highlight=False)
+
 # ── ANSI colours ──────────────────────────────────────────────────────────────
 _COLOUR_CYCLE = [
     "\033[96m",   # Bright Cyan
@@ -67,6 +74,14 @@ _COLOUR_CYCLE = [
 PERSONA_COLORS: Dict[str, str] = {
     str(i + 1): c for i, c in enumerate(_COLOUR_CYCLE)
 }
+
+_RICH_STYLES = ["bold cyan","bold yellow","bold magenta","bold green","bold blue","bold red","bold white"]
+
+def _rich_style(key: str) -> str:
+    try:
+        return _RICH_STYLES[(int(key) - 1) % len(_RICH_STYLES)]
+    except (ValueError, IndexError):
+        return "bold white"
 
 THINK_COLOR  = "\033[90m"    # Dark Grey  – thoughts
 SYSTEM_COLOR = "\033[2;37m"  # Dim White  – system messages
@@ -82,7 +97,15 @@ DEFAULT_KEYS = {"1", "2"}
 
 
 def cprint(color: str, text: str) -> None:
-    print(f"{color}{text}{RESET}")
+    if color in (SYSTEM_COLOR, HINT_COLOR):
+        console.print(text, style="dim white" if color == SYSTEM_COLOR else "dim cyan",
+                      markup=False)
+    elif color == THINK_COLOR:
+        console.print(text, style="color(240)", markup=False)
+    elif color in (BOLD, USER_BOLD):
+        console.print(text, style="bold", markup=False)
+    else:
+        console.print(text, markup=False)
 
 
 def clear_screen() -> None:
@@ -93,10 +116,11 @@ _HINTS_L1 = "!observe [topic] [n]  ·  !focus @name  ·  !focus  ·  !add @name 
 _HINTS_L2 = "!topic [text]  ·  !image <path>  ·  !images  ·  !clear  ·  !exit  ·  !help"
 
 def print_hints() -> None:
-    print(f"\n{HINT_COLOR}  {_HINT_SEP}")
-    print(f"  {_HINTS_L1}")
-    print(f"  {_HINTS_L2}")
-    print(f"  {_HINT_SEP}{RESET}")
+    console.print()
+    console.rule(style="dim cyan")
+    console.print(f"  {_HINTS_L1}", style="dim cyan")
+    console.print(f"  {_HINTS_L2}", style="dim cyan")
+    console.rule(style="dim cyan")
 
 
 def persona_color(key: str) -> str:
@@ -157,41 +181,51 @@ def _print_help() -> None:
 
 
 def print_banner() -> None:
-    print("\n" + "=" * 60)
-    print("  FOCUS GROUP SIMULATION  —  Room Mode")
-    print("=" * 60)
-    cprint(SYSTEM_COLOR, "  !add @name  !kick @name  !observe  !focus @name  !topic [text]  !clear  !exit  !help")
-    print()
+    console.rule(style="white")
+    console.print("  FOCUS GROUP SIMULATION  —  Room Mode", style="bold")
+    console.rule(style="white")
+    console.print("  !add  !kick  !observe  !focus  !topic  !image  !clear  !exit  !help",
+                  style="dim white")
+    console.print()
 
 
 # ── Persona selection menu ────────────────────────────────────────────────────
 
 def _print_persona_menu(full_registry: dict) -> None:
-    cprint(SYSTEM_COLOR, "\n── Select personas ──────────────────────────────────────")
-    cprint(BOLD, "  DEFAULT PERSONAS:")
+    console.print()
+    console.rule("Select Personas", style="dim white")
+    console.print()
+
+    console.print("  DEFAULT PERSONAS", style="bold")
+    default_table = Table(show_header=False, box=None, padding=(0, 2), show_edge=False)
+    default_table.add_column("Key", style="bold", width=4)
+    default_table.add_column("Name", style="bold")
+    default_table.add_column("Brief", style="color(240)")
     for key in sorted(DEFAULT_KEYS):
         if key in full_registry:
             reg = full_registry[key]
-            brief = reg.get("brief", "")
-            print(f"  {key}. {reg['name']}")
-            if brief:
-                cprint(DIM, f"     {brief}")
+            default_table.add_row(f"{key}.", reg["name"], reg.get("brief", ""))
+    console.print(default_table)
 
     custom = {k: v for k, v in full_registry.items() if k not in DEFAULT_KEYS}
     if custom:
-        cprint(BOLD, "\n  YOUR PERSONAS:")
+        console.print()
+        console.print("  YOUR PERSONAS", style="bold")
+        custom_table = Table(show_header=False, box=None, padding=(0, 2), show_edge=False)
+        custom_table.add_column("Key", style="bold", width=4)
+        custom_table.add_column("Name", style="bold")
+        custom_table.add_column("Brief", style="color(240)")
         for key in sorted(custom.keys(), key=int):
             reg = custom[key]
-            brief = reg.get("brief", "")
-            print(f"  {key}. {reg['name']}")
-            if brief:
-                cprint(DIM, f"     {brief}")
+            custom_table.add_row(f"{key}.", reg["name"], reg.get("brief", ""))
+        console.print(custom_table)
 
-    print()
-    cprint(SYSTEM_COLOR, "  G  — Generate a random persona")
-    cprint(SYSTEM_COLOR, "  Q  — Quit")
-    cprint(SYSTEM_COLOR, "\n  Enter numbers to start room (e.g. '1 2'),")
-    cprint(SYSTEM_COLOR, "  a single custom number to manage it, or 'G':")
+    console.print()
+    console.print("  G  — Generate a random persona", style="color(240)")
+    console.print("  Q  — Quit", style="color(240)")
+    console.print()
+    console.print("  Enter numbers to start room (e.g. '1 2'),", style="color(240)")
+    console.print("  a single custom number to manage it, or 'G':", style="color(240)")
 
 
 def choose_initial_personas() -> list:
@@ -515,11 +549,13 @@ def run_observe(
     log_note = f"Observing ({round_label}){': ' + observe_topic if observe_topic else ''}."
     room_state = append_log(room_state, make_log_entry("system", log_note))
 
-    cprint(SYSTEM_COLOR, f"\n{DIVIDER}")
+    console.print()
+    console.rule(style="dim white")
     if observe_topic:
-        cprint(SYSTEM_COLOR, f"  Topic: \"{observe_topic}\"")
-    cprint(SYSTEM_COLOR, f"  [Observing for {round_label} — Ctrl+C to stop early]")
-    cprint(SYSTEM_COLOR, f"{DIVIDER}\n")
+        console.print(f'  Topic: "{observe_topic}"', style="dim white")
+    console.print(f"  [Observing for {round_label} \u2014 Ctrl+C to stop early]", style="dim white")
+    console.rule(style="dim white")
+    console.print()
 
     all_names = [
         room_state["personas"][k]["name"]
@@ -543,23 +579,13 @@ def run_observe(
         while round_count < rounds:
             for pkey in active:
                 ctx   = room_state["personas"][pkey]
-                color = persona_color(pkey)
 
-                print(f"{DIM}[{ctx['name']} is thinking... (round {round_count + 1}/{rounds})]{RESET}")
-
-                thoughts, response, updated_history = generate_response_for_persona(
-                    ctx, current_prompt, is_observe=True,
+                thoughts, response, updated_history = stream_persona_response(
+                    ctx, current_prompt, pkey, is_observe=True,
                     room_participants=all_names,
                     topic_context=room_state["topic_context"],
                     image_context=_build_image_context(room_state),
                 )
-
-                if thoughts:
-                    cprint(THINK_COLOR, f"  \U0001f4ad {ctx['name']}: {thoughts}")
-                    print()
-
-                print(f"{color}{BOLD}{ctx['name']}:{RESET} {response}")
-                cprint(SYSTEM_COLOR, DIVIDER)
 
                 updated_personas = dict(room_state["personas"])
                 updated_personas[pkey] = {**ctx, "history": updated_history}
@@ -593,31 +619,22 @@ def run_observe(
             f"What would make you say yes?]"
         )
 
-        cprint(SYSTEM_COLOR, f"\n{DIVIDER}")
-        cprint(SYSTEM_COLOR, "  [Synthesis — what would actually work for each persona?]")
-        cprint(SYSTEM_COLOR, f"{DIVIDER}\n")
+        console.print()
+        console.rule("Synthesis \u2014 what would actually work?", style="dim white")
+        console.print()
 
         for pkey in active:
             ctx   = room_state["personas"][pkey]
-            color = persona_color(pkey)
 
-            print(f"{DIM}[{ctx['name']} is thinking...]{RESET}")
             try:
-                thoughts, response, updated_history = generate_response_for_persona(
-                    ctx, synthesis_prompt, is_observe=True,
+                thoughts, response, updated_history = stream_persona_response(
+                    ctx, synthesis_prompt, pkey, is_observe=True,
                     room_participants=all_names,
                     topic_context=room_state["topic_context"],
                     image_context=_build_image_context(room_state),
                 )
             except KeyboardInterrupt:
                 break
-
-            if thoughts:
-                cprint(THINK_COLOR, f"  \U0001f4ad {ctx['name']}: {thoughts}")
-                print()
-
-            print(f"{color}{BOLD}{ctx['name']}:{RESET} {response}")
-            cprint(SYSTEM_COLOR, DIVIDER)
 
             updated_personas = dict(room_state["personas"])
             updated_personas[pkey] = {**ctx, "history": updated_history}
@@ -699,6 +716,50 @@ def _print_image_list(room_state: RoomState) -> None:
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
+def stream_persona_response(ctx, input_text, pkey, *, is_observe=False,
+                             room_participants=None, topic_context="",
+                             image_context="") -> tuple:
+    name = ctx["name"]
+    style = _rich_style(pkey)
+    phase = {"started": False}
+
+    live = Live(
+        Text(f"  {name} is thinking\u2026", style="dim"),
+        console=console, refresh_per_second=12, transient=True,
+    )
+    live.start()
+
+    def on_token(token: str):
+        if not phase["started"]:
+            phase["started"] = True
+            live.stop()
+            console.print()
+            console.print(Text(f"{name}: ", style=style), end="")
+        console.print(token, end="", markup=False)
+
+    try:
+        thoughts, response, updated_history = generate_response_for_persona(
+            ctx, input_text, is_observe=is_observe,
+            room_participants=room_participants,
+            topic_context=topic_context, image_context=image_context,
+            on_token=on_token,
+        )
+    except BaseException:
+        if not phase["started"]:
+            live.stop()
+        raise
+
+    if not phase["started"]:
+        live.stop()
+
+    console.print()
+    if thoughts:
+        console.print(f"  \U0001f4ad {thoughts}", style="color(240)")
+    console.rule(style="dim white")
+
+    return thoughts, response, updated_history
+
+
 def _prompt_topic() -> tuple[str, str]:
     """Ask the user for a discussion topic before entering the room."""
     cprint(SYSTEM_COLOR, f"\n{DIVIDER}")
@@ -749,15 +810,18 @@ def run() -> None:
         return min(candidates, key=len) if candidates else ""
 
     names = [personas[k]["name"] for k in initial_keys]
-    mention_hints = "  ·  ".join(
-        f"{personas[k]['name']} {DIM}({_shortest_mention(k)}){RESET}{SYSTEM_COLOR}"
+    mention_parts = [
+        f"{personas[k]['name']} ({_shortest_mention(k)})"
         for k in initial_keys
         if _shortest_mention(k)
-    )
-    cprint(SYSTEM_COLOR, f"\n{DIVIDER}")
-    cprint(SYSTEM_COLOR, f"  Room: {mention_hints or ', '.join(names)} ready")
-    cprint(SYSTEM_COLOR, f"  Topic: {room_state['topic']}")
-    cprint(SYSTEM_COLOR, f"{DIVIDER}\n")
+    ]
+    mention_str = "  \u00b7  ".join(mention_parts) if mention_parts else ", ".join(names)
+    console.print()
+    console.rule(style="dim white")
+    console.print(f"  Room: {mention_str} ready", style="dim white", markup=False)
+    console.print(f"  Topic: {room_state['topic']}", style="dim white")
+    console.rule(style="dim white")
+    console.print()
 
     while True:
         active      = room_state["active_personas"]
@@ -802,14 +866,19 @@ def run() -> None:
                     cprint(SYSTEM_COLOR, "[Generating session brief...]")
                     brief = generate_exit_brief(room_state["full_log"], persona_names)
                     if brief:
-                        print()
-                        cprint(BOLD, "  SESSION INSIGHTS")
-                        cprint(SYSTEM_COLOR, "  " + DIVIDER)
+                        brief_text = Text()
                         for line in brief.splitlines():
                             line = line.strip()
                             if line:
-                                cprint(SYSTEM_COLOR, f"  {line}")
-                        print()
+                                brief_text.append(line + "\n", style="dim white")
+                        console.print()
+                        console.print(Panel(
+                            brief_text,
+                            title="[bold]Session Insights[/bold]",
+                            border_style="dim white",
+                            padding=(1, 2),
+                        ))
+                        console.print()
                     # ── Full markdown summary ──────────────────────────────────
                     cprint(SYSTEM_COLOR, "[Saving full summary...]")
                     try:
@@ -965,26 +1034,20 @@ def run() -> None:
 
         for pkey in responders:
             ctx   = room_state["personas"][pkey]
-            color = persona_color(pkey)
 
-            print(f"\n{DIM}[{ctx['name']} is thinking...]{RESET}")
             try:
-                thoughts, response, updated_history = generate_response_for_persona(
-                    ctx, user_input, is_observe=False,
+                thoughts, response, updated_history = stream_persona_response(
+                    ctx, user_input, pkey,
                     room_participants=all_room_names,
                     topic_context=room_state["topic_context"],
                     image_context=_build_image_context(room_state),
                 )
             except KeyboardInterrupt:
-                cprint(SYSTEM_COLOR, f"\n[{ctx['name']}'s response interrupted. Type !exit to leave.]")
+                console.print(
+                    f"\n  [{ctx['name']}'s response interrupted. Type !exit to leave.]",
+                    style="dim white", markup=False,
+                )
                 break
-
-            if thoughts:
-                cprint(THINK_COLOR, f"  \U0001f4ad {ctx['name']}: {thoughts}")
-                print()
-
-            print(f"{color}{BOLD}{ctx['name']}:{RESET} {response}")
-            cprint(SYSTEM_COLOR, DIVIDER)
 
             updated_personas = dict(room_state["personas"])
             updated_personas[pkey] = {**ctx, "history": updated_history}
