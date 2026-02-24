@@ -33,7 +33,7 @@ from core.room import (
 )
 from core.nodes import generate_response_for_persona
 from core.persona_router import detect_command
-from core.summary import save_chat_summary
+from core.summary import save_chat_summary, generate_exit_brief
 from core.prompt_builder import build_system_prompt
 from core.topic_context import fetch_topic_context, DEFAULT_TOPIC
 from core.persona_generator import (
@@ -234,56 +234,155 @@ def choose_initial_personas() -> list:
 
 # ── Generate-persona flow ─────────────────────────────────────────────────────
 
-def _generate_persona_flow() -> str | None:
+def _persona_one_liner(p: dict) -> str:
+    """Build a brief one-line description for the persona selection overview."""
+    parts = []
+    age = p.get("age")
+    if age:
+        parts.append(str(age) + "yo")
+    occ = p.get("occupation", "")
+    if occ:
+        parts.append(occ)
+    loc = p.get("location", "")
+    if loc:
+        parts.append(loc)
+    gaming = p.get("gaming_level", "")
+    if gaming:
+        parts.append(gaming + " gamer")
+    return "  " + " · ".join(parts) if parts else ""
+
+
+def _preview_generated_persona(slots: dict, slot: str) -> str | None:
     """
-    Guides the user through generating, editing, and saving a new persona.
-    Returns the persona key to chat with, or None (go back).
+    Show full traits for the chosen slot and let the user edit, confirm, switch,
+    regenerate, or go back.
+    Returns the saved persona key string on confirm, or a sentinel string:
+        'regenerate' → regenerate both
+        'back'       → return to overview
     """
-    persona = generate_random_persona()
+    other_slot = "B" if slot == "A" else "A"
+    persona = slots[slot]
 
     while True:
+        other_name = slots[other_slot].get("name", f"Persona {other_slot}")
+
+        print()
+        cprint(SYSTEM_COLOR, DIVIDER)
+        cprint(BOLD, f"  PREVIEW  ·  Persona {slot}")
+        cprint(SYSTEM_COLOR, DIVIDER)
         print()
         display_persona_traits(persona)
         print()
-        cprint(SYSTEM_COLOR, "  1. Chat with this persona")
+        cprint(SYSTEM_COLOR, "  1. Confirm & save — enter the room")
         cprint(SYSTEM_COLOR, "  2. Edit by description")
         cprint(SYSTEM_COLOR, "  3. Edit traits individually")
-        cprint(SYSTEM_COLOR, "  4. Regenerate entirely")
-        cprint(SYSTEM_COLOR, "  5. Back")
+        cprint(SYSTEM_COLOR, f"  4. Switch to Persona {other_slot}  ({other_name})")
+        cprint(SYSTEM_COLOR, "  5. Regenerate both")
+        cprint(SYSTEM_COLOR, "  6. Back to selection")
 
         try:
             choice = input("\n> ").strip()
         except (KeyboardInterrupt, EOFError):
-            return None
+            return "back"
 
         if choice == "1":
-            # Save and return key
             cprint(SYSTEM_COLOR, "\n[Saving persona...]")
             key = save_custom_persona(persona)
-            cprint(persona_color(key), f"[{persona['name']} saved as persona #{key}]")
+            cprint(persona_color(key), f"[{persona['name']} saved — entering room as persona #{key}]")
             return key
 
         elif choice == "2":
             try:
-                desc = input("Describe changes (e.g. 'make them older and budget-conscious'):\n> ").strip()
+                desc = input("Describe the changes (e.g. 'make them older and more budget-conscious'):\n> ").strip()
             except (KeyboardInterrupt, EOFError):
                 continue
             if desc:
+                cprint(SYSTEM_COLOR, "[Refining persona...]")
                 persona = refine_with_description(persona, desc)
+                slots[slot] = persona
 
         elif choice == "3":
             updated = edit_traits_interactive(persona)
             if updated is not None:
                 persona = updated
+                slots[slot] = persona
 
         elif choice == "4":
-            persona = generate_random_persona()
+            # Switch — update the slot we edited, then preview the other
+            slots[slot] = persona
+            result = _preview_generated_persona(slots, other_slot)
+            # If the other slot confirmed or regenerated, propagate up
+            if result not in ("back",):
+                return result
+            # 'back' from other preview → return to this preview
 
         elif choice == "5":
+            return "regenerate"
+
+        elif choice == "6":
+            slots[slot] = persona  # preserve edits
+            return "back"
+
+        else:
+            cprint(SYSTEM_COLOR, "[Enter 1–6]")
+
+
+def _generate_persona_flow() -> str | None:
+    """
+    Generate 2 personas, let the user preview and edit either one, then
+    confirm one to save. Returns the saved persona key, or None (go back).
+    """
+    cprint(SYSTEM_COLOR, "\n[Generating 2 personas — please wait...]")
+    slots: dict = {
+        "A": generate_random_persona(),
+        "B": generate_random_persona(),
+    }
+
+    while True:
+        # ── Overview ──────────────────────────────────────────────────────────
+        print()
+        cprint(SYSTEM_COLOR, DIVIDER)
+        cprint(BOLD, "  GENERATED PERSONAS")
+        cprint(SYSTEM_COLOR, DIVIDER)
+
+        for slot, p in slots.items():
+            name = p.get("name", f"Persona {slot}")
+            brief = _persona_one_liner(p)
+            print()
+            cprint(BOLD, f"  [{slot}]  {name}")
+            if brief:
+                cprint(DIM, brief)
+
+        print()
+        cprint(SYSTEM_COLOR, "  A → Preview Persona A")
+        cprint(SYSTEM_COLOR, "  B → Preview Persona B")
+        cprint(SYSTEM_COLOR, "  R → Regenerate both")
+        cprint(SYSTEM_COLOR, "  ← Enter / Q → Back")
+
+        try:
+            raw = input("\n> ").strip().upper()
+        except (KeyboardInterrupt, EOFError):
+            return None
+
+        if raw in ("A", "B"):
+            result = _preview_generated_persona(slots, raw)
+            if result == "regenerate":
+                cprint(SYSTEM_COLOR, "\n[Regenerating both personas...]")
+                slots["A"] = generate_random_persona()
+                slots["B"] = generate_random_persona()
+            elif result != "back" and result is not None:
+                return result  # persona key — confirmed and saved
+
+        elif raw == "R":
+            cprint(SYSTEM_COLOR, "\n[Regenerating both personas...]")
+            slots["A"] = generate_random_persona()
+            slots["B"] = generate_random_persona()
+
+        elif raw in ("", "Q", "BACK"):
             return None
 
         else:
-            cprint(SYSTEM_COLOR, "[Enter 1–5]")
+            cprint(SYSTEM_COLOR, "[Enter A, B, R, or press Enter to go back]")
 
 
 # ── Custom persona management menu ───────────────────────────────────────────
@@ -429,6 +528,7 @@ def run_observe(
 
     current_prompt = _make_seed_prompt()
     round_count = 0
+    completed = False
 
     try:
         while round_count < rounds:
@@ -446,7 +546,7 @@ def run_observe(
                 )
 
                 if thoughts:
-                    cprint(THINK_COLOR, f"  \U0001f4ad {ctx['name']} thinks: {thoughts}")
+                    cprint(THINK_COLOR, f"  \U0001f4ad {ctx['name']}: {thoughts}")
                     print()
 
                 print(f"{color}{BOLD}{ctx['name']}:{RESET} {response}")
@@ -469,9 +569,54 @@ def run_observe(
                 )
 
             round_count += 1
+        completed = True
 
     except KeyboardInterrupt:
         cprint(SYSTEM_COLOR, "\n[Observation stopped.]")
+
+    # ── Synthesis round (only when all rounds completed naturally) ─────────────
+    if completed:
+        synthesis_prompt = (
+            f"[The observation is complete. The moderator now asks you directly: "
+            f"Based on everything discussed about {room_state['topic']}, what specific offer, "
+            f"price point, bundle, or product version would actually work for you? "
+            f"Don't generalise — give a concrete, honest answer the moderator can act on. "
+            f"What would make you say yes?]"
+        )
+
+        cprint(SYSTEM_COLOR, f"\n{DIVIDER}")
+        cprint(SYSTEM_COLOR, "  [Synthesis — what would actually work for each persona?]")
+        cprint(SYSTEM_COLOR, f"{DIVIDER}\n")
+
+        for pkey in active:
+            ctx   = room_state["personas"][pkey]
+            color = persona_color(pkey)
+
+            print(f"{DIM}[{ctx['name']} is thinking...]{RESET}")
+            try:
+                thoughts, response, updated_history = generate_response_for_persona(
+                    ctx, synthesis_prompt, is_observe=True,
+                    room_participants=all_names,
+                    topic_context=room_state["topic_context"],
+                    image_context=_build_image_context(room_state),
+                )
+            except KeyboardInterrupt:
+                break
+
+            if thoughts:
+                cprint(THINK_COLOR, f"  \U0001f4ad {ctx['name']}: {thoughts}")
+                print()
+
+            print(f"{color}{BOLD}{ctx['name']}:{RESET} {response}")
+            cprint(SYSTEM_COLOR, DIVIDER)
+
+            updated_personas = dict(room_state["personas"])
+            updated_personas[pkey] = {**ctx, "history": updated_history}
+            room_state = {**room_state, "personas": updated_personas}
+
+            room_state = append_log(room_state, make_log_entry(
+                "persona", response, pkey, ctx["name"], thoughts,
+            ))
 
     return room_state
 
@@ -624,7 +769,20 @@ def run() -> None:
                 ]
                 cprint(SYSTEM_COLOR, "\n[Closing room...]")
                 if room_state["full_log"]:
-                    cprint(SYSTEM_COLOR, "[Generating summary, please wait...]")
+                    # ── Terminal session brief ─────────────────────────────────
+                    cprint(SYSTEM_COLOR, "[Generating session brief...]")
+                    brief = generate_exit_brief(room_state["full_log"], persona_names)
+                    if brief:
+                        print()
+                        cprint(BOLD, "  SESSION INSIGHTS")
+                        cprint(SYSTEM_COLOR, "  " + DIVIDER)
+                        for line in brief.splitlines():
+                            line = line.strip()
+                            if line:
+                                cprint(SYSTEM_COLOR, f"  {line}")
+                        print()
+                    # ── Full markdown summary ──────────────────────────────────
+                    cprint(SYSTEM_COLOR, "[Saving full summary...]")
                     filepath = save_chat_summary(room_state["full_log"], persona_names)
                     cprint(SYSTEM_COLOR, f"[Summary saved to: {filepath}]")
                 else:
@@ -774,15 +932,19 @@ def run() -> None:
             color = persona_color(pkey)
 
             print(f"\n{DIM}[{ctx['name']} is thinking...]{RESET}")
-            thoughts, response, updated_history = generate_response_for_persona(
-                ctx, user_input, is_observe=False,
-                room_participants=all_room_names,
-                topic_context=room_state["topic_context"],
-                image_context=_build_image_context(room_state),
-            )
+            try:
+                thoughts, response, updated_history = generate_response_for_persona(
+                    ctx, user_input, is_observe=False,
+                    room_participants=all_room_names,
+                    topic_context=room_state["topic_context"],
+                    image_context=_build_image_context(room_state),
+                )
+            except KeyboardInterrupt:
+                cprint(SYSTEM_COLOR, f"\n[{ctx['name']}'s response interrupted. Type !exit to leave.]")
+                break
 
             if thoughts:
-                cprint(THINK_COLOR, f"  \U0001f4ad {thoughts}")
+                cprint(THINK_COLOR, f"  \U0001f4ad {ctx['name']}: {thoughts}")
                 print()
 
             print(f"{color}{BOLD}{ctx['name']}:{RESET} {response}")

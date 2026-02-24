@@ -110,6 +110,47 @@ def build_markdown(summary: str, full_log: List[dict]) -> str:
     return "\n".join(lines)
 
 
+def generate_exit_brief(full_log: List[dict], persona_names: List[str]) -> str:
+    """
+    Generate a short, terminal-friendly session debrief (bullet points).
+    Called on !exit to print insights directly before the goodbye message.
+    Returns an empty string if the session is too short or the LLM fails.
+    """
+    persona_entries = [e for e in full_log if e["type"] == "persona"]
+    if len(persona_entries) < 2:
+        return ""
+
+    transcript_lines = []
+    for entry in full_log:
+        if entry["type"] == "user":
+            transcript_lines.append(f"[Moderator]: {entry['content']}")
+        elif entry["type"] == "persona":
+            transcript_lines.append(f"[{entry['persona_name']}]: {entry['content']}")
+    transcript = "\n".join(transcript_lines)
+
+    participants = ", ".join(persona_names) if persona_names else "participants"
+
+    prompt = f"""You are a focus group analyst. The session below just ended.
+
+Participants: {participants}
+
+Transcript:
+{transcript}
+
+Write exactly 5 bullet-point insights — plain text, no markdown, no headers.
+Each bullet starts with •, is a single sentence, and is under 20 words.
+Cover: dominant sentiment, a consensus point, a key tension, one surprising insight, one actionable takeaway.
+Be specific to what was actually said — no generalities.
+Do not add any preamble. Output only the 5 bullets."""
+
+    try:
+        llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.3)
+        result = llm.invoke([HumanMessage(content=prompt)])
+        return result.content.strip()
+    except Exception:
+        return ""
+
+
 def save_chat_summary(full_log: List[dict], persona_names: List[str]) -> str:
     """
     Generate summary, build markdown, save to chat_summaries/.
