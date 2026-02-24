@@ -9,6 +9,7 @@ can form informed opinions without changing their personalities.
   Falls back to DuckDuckGo Instant Answer API, then graceful empty.
 """
 
+import warnings
 import requests
 from context.ps5_context import PS5_CONTEXT
 
@@ -42,13 +43,15 @@ def fetch_topic_context(topic: str) -> str:
 def _ddg_search(topic: str) -> str:
     """Use duckduckgo-search to get real web snippets."""
     try:
-        from duckduckgo_search import DDGS
-        snippets = []
-        with DDGS() as ddgs:
-            for r in ddgs.text(f"{topic} overview", max_results=5, timelimit="y"):
-                body = r.get("body", "")
-                if body:
-                    snippets.append(f"- {r['title']}: {body[:250]}")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            from duckduckgo_search import DDGS
+            snippets = []
+            with DDGS() as ddgs:
+                for r in ddgs.text(f"{topic} overview", max_results=5, timelimit="y"):
+                    body = r.get("body", "")
+                    if body:
+                        snippets.append(f"- {r['title']}: {body[:250]}")
         if snippets:
             return f"TOPIC: {topic}\n\n" + "\n".join(snippets)
     except Exception:

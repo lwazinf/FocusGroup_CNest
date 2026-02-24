@@ -21,7 +21,12 @@ import sys
 import json
 import os
 import re
+import signal
+import warnings
 from typing import Dict
+
+# Suppress noisy ResourceWarnings from unclosed sockets in LangChain/httpx internals
+warnings.filterwarnings("ignore", category=ResourceWarning)
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -65,12 +70,14 @@ PERSONA_COLORS: Dict[str, str] = {
 
 THINK_COLOR  = "\033[90m"    # Dark Grey  – thoughts
 SYSTEM_COLOR = "\033[2;37m"  # Dim White  – system messages
+HINT_COLOR   = "\033[2;36m"  # Dim Cyan   – command bar
 USER_BOLD    = "\033[1m"     # Bold
 RESET        = "\033[0m"
 BOLD         = "\033[1m"
 DIM          = "\033[2m"
 
 DIVIDER      = "─" * 60
+_HINT_SEP    = "╌" * 60
 DEFAULT_KEYS = {"1", "2"}
 
 
@@ -78,16 +85,18 @@ def cprint(color: str, text: str) -> None:
     print(f"{color}{text}{RESET}")
 
 
-_HINTS = (
-    '!observe ["topic"] [rounds]'
-    "  ·  !focus @name  ·  !focus"
-    "  ·  !add @name  ·  !kick @name"
-    "  ·  !topic [text]  ·  !image <path>  ·  !images"
-    "  ·  !clear  ·  !exit  ·  !help"
-)
+def clear_screen() -> None:
+    os.system("cls" if os.name == "nt" else "clear")
+
+
+_HINTS_L1 = "!observe [topic] [n]  ·  !focus @name  ·  !focus  ·  !add @name  ·  !kick @name"
+_HINTS_L2 = "!topic [text]  ·  !image <path>  ·  !images  ·  !clear  ·  !exit  ·  !help"
 
 def print_hints() -> None:
-    print(f"\n{THINK_COLOR}  {_HINTS}{RESET}")
+    print(f"\n{HINT_COLOR}  {_HINT_SEP}")
+    print(f"  {_HINTS_L1}")
+    print(f"  {_HINTS_L2}")
+    print(f"  {_HINT_SEP}{RESET}")
 
 
 def persona_color(key: str) -> str:
@@ -710,11 +719,17 @@ def run() -> None:
     initial_keys = choose_initial_personas()
     topic, topic_context = _prompt_topic()
 
+    clear_screen()  # clean slate before entering the room
+
     personas: Dict[str, PersonaContext] = {}
     full_reg = get_full_registry()
     for key in initial_keys:
         cprint(SYSTEM_COLOR, f"[Loading {full_reg[key]['name']}...]")
-        personas[key] = load_persona_context(key)
+        try:
+            personas[key] = load_persona_context(key)
+        except Exception as e:
+            cprint(SYSTEM_COLOR, f"[Error loading persona: {e}]")
+            sys.exit(1)
 
     room_state: RoomState = {
         "active_personas": initial_keys,
@@ -727,9 +742,20 @@ def run() -> None:
         "image_contexts": [],
     }
 
+    # Build room header with @mention hints per persona
+    _init_mention_map = get_full_mention_map()
+    def _shortest_mention(key: str) -> str:
+        candidates = [m for m, k in _init_mention_map.items() if k == key]
+        return min(candidates, key=len) if candidates else ""
+
     names = [personas[k]["name"] for k in initial_keys]
+    mention_hints = "  ·  ".join(
+        f"{personas[k]['name']} {DIM}({_shortest_mention(k)}){RESET}{SYSTEM_COLOR}"
+        for k in initial_keys
+        if _shortest_mention(k)
+    )
     cprint(SYSTEM_COLOR, f"\n{DIVIDER}")
-    cprint(SYSTEM_COLOR, f"  Room: {', '.join(names)} ready")
+    cprint(SYSTEM_COLOR, f"  Room: {mention_hints or ', '.join(names)} ready")
     cprint(SYSTEM_COLOR, f"  Topic: {room_state['topic']}")
     cprint(SYSTEM_COLOR, f"{DIVIDER}\n")
 
@@ -767,6 +793,9 @@ def run() -> None:
                     for pkey, ctx in room_state["personas"].items()
                     if pkey in active
                 ]
+                # Block Ctrl+C for the entire cleanup phase so the brief
+                # and summary cannot be interrupted mid-generation.
+                signal.signal(signal.SIGINT, signal.SIG_IGN)
                 cprint(SYSTEM_COLOR, "\n[Closing room...]")
                 if room_state["full_log"]:
                     # ── Terminal session brief ─────────────────────────────────
@@ -783,8 +812,11 @@ def run() -> None:
                         print()
                     # ── Full markdown summary ──────────────────────────────────
                     cprint(SYSTEM_COLOR, "[Saving full summary...]")
-                    filepath = save_chat_summary(room_state["full_log"], persona_names)
-                    cprint(SYSTEM_COLOR, f"[Summary saved to: {filepath}]")
+                    try:
+                        filepath = save_chat_summary(room_state["full_log"], persona_names)
+                        cprint(SYSTEM_COLOR, f"[Summary saved to: {filepath}]")
+                    except Exception as e:
+                        cprint(SYSTEM_COLOR, f"[Summary could not be saved: {e}]")
                 else:
                     cprint(SYSTEM_COLOR, "[No conversation to save.]")
                 cprint(SYSTEM_COLOR, "[Room closed. Goodbye.]\n")
@@ -835,7 +867,11 @@ def run() -> None:
                 else:
                     cprint(SYSTEM_COLOR, f"[Loading {full_reg[pkey]['name']}...]")
                     if pkey not in room_state["personas"]:
-                        room_state["personas"][pkey] = load_persona_context(pkey)
+                        try:
+                            room_state["personas"][pkey] = load_persona_context(pkey)
+                        except Exception as e:
+                            cprint(SYSTEM_COLOR, f"[Could not load {pname}: {e}]")
+                            continue
                     room_state = add_persona_to_room(room_state, pkey)
                     ctx = room_state["personas"][pkey]
                     cprint(persona_color(pkey), f"[{ctx['name']} has joined the room.]")

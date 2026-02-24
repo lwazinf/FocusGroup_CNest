@@ -32,24 +32,24 @@ def save_registry(registry: dict) -> None:
 
 
 def next_available_key(registry: dict) -> str:
-    all_keys = {1, 2} | {int(k) for k in registry.keys()}
+    all_keys = {1, 2} | {int(k) for k in registry if str(k).isdigit()}
     return str(max(all_keys) + 1)
 
 
 def custom_to_chroma_metadata(persona: dict) -> dict:
     return {
-        "age": persona["age"],
-        "gender": persona["gender"],
-        "nationality": persona["nationality"],
-        "location": persona["location"],
-        "profession": persona["occupation"],
-        "gaming_experience_level": persona["gaming_level"],
+        "age": persona.get("age", ""),
+        "gender": persona.get("gender", ""),
+        "nationality": persona.get("nationality", ""),
+        "location": persona.get("location", ""),
+        "profession": persona.get("occupation", ""),
+        "gaming_experience_level": persona.get("gaming_level", ""),
         "disagreeable": float(persona.get("disagreeable", 0.5)),
         "is_custom": True,
-        "purchase_hesitation_triggers": persona["hesitation_triggers"],
-        "motivations": persona["motivations"],
-        "emotional_language_resonance": persona["emotional_resonance"],
-        "psychographics_decision_style": persona["decision_style"],
+        "purchase_hesitation_triggers": persona.get("hesitation_triggers", ""),
+        "motivations": persona.get("motivations", ""),
+        "emotional_language_resonance": persona.get("emotional_resonance", ""),
+        "psychographics_decision_style": persona.get("decision_style", ""),
     }
 
 
@@ -153,5 +153,10 @@ def get_full_mention_map() -> dict:
     merged = dict(PERSONA_MENTION_MAP)
     custom_registry = load_custom_registry()
     for key, entry in custom_registry.items():
-        merged[f"@{entry['mention']}"] = key
+        full_slug = entry["mention"]
+        merged[f"@{full_slug}"] = key
+        # Register first-name alias for multi-word names (e.g. "rukmini_patel" → "@rukmini")
+        first_slug = full_slug.split("_")[0]
+        if first_slug != full_slug and f"@{first_slug}" not in merged:
+            merged[f"@{first_slug}"] = key
     return merged

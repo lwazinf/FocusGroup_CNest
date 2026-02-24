@@ -7,7 +7,15 @@ _redis = None
 def get_redis():
     global _redis
     if _redis is None:
-        _redis = redis.from_url(REDIS_URL, decode_responses=True)
+        client = redis.from_url(REDIS_URL, decode_responses=True)
+        try:
+            client.ping()
+        except (redis.exceptions.ConnectionError, redis.exceptions.ResponseError) as e:
+            raise RuntimeError(
+                f"Cannot connect to Redis at {REDIS_URL!r}. "
+                f"Make sure Redis is running.\nDetails: {e}"
+            ) from None
+        _redis = client
     return _redis
 
 def load_history(redis_key: str) -> list:

@@ -257,9 +257,11 @@ python main.py
 
 ## How to use it
 
-When the app starts, it will ask you which personas to invite into the room. Type the numbers you want (e.g. `1 2` for both).
+When the app starts, it will ask you which personas to invite into the room. Type the numbers you want (e.g. `1 2` for both), or press **G** to generate a brand-new custom persona on the spot.
 
 Then type your topic (or press Enter for the default: PlayStation 5).
+
+The terminal clears automatically when you enter the room so you start with a clean view.
 
 Once you're in the room, just type your questions and press Enter.
 
@@ -271,18 +273,20 @@ Once you're in the room, just type your questions and press Enter.
 | `!kick @name` | Remove a persona from the room |
 | `!observe` | Watch the personas talk to each other for 3 rounds |
 | `!observe "question"` | Observe with a specific seed question |
-| `!observe 5` | Observe for 5 rounds |
+| `!observe 5` | Observe for 5 rounds (combine: `!observe "question" 5`) |
 | `!focus @name` | Talk to one persona only (others watch) |
 | `!focus` | Go back to talking to everyone |
 | `!topic your topic` | Change what you're discussing |
 | `!image /path/to/image.jpg` | Load an ad image — personas will react to it |
-| `!image clear` | Remove the image from the room |
+| `!image clear` | Remove all images from the room |
 | `!images` | See what images are loaded |
-| `!reset` | Clear the conversation history |
-| `!exit` | End the session and save a summary |
+| `!clear` | Clear the conversation history (`!reset` also works) |
+| `!exit` | Print a session brief, then save a full Markdown summary |
 | `!help` | Show all commands inside the app |
 
-**Available personas:** `@lena`, `@marcus`
+**Built-in personas:** `@lena`, `@marcus`
+
+**Custom personas:** Press **G** at the persona menu to generate one. Custom personas are addressed by `@firstname` (e.g. a generated "Rukmini Patel" is `@rukmini`).
 
 > **Tip:** You can combine a message and an image in one go:
 > `What do you think of this ad? !image '/Users/you/Desktop/ad.png'`
@@ -301,6 +305,12 @@ Once you're in the room, just type your questions and press Enter.
 
 38-year-old digital product designer, married with two kids, Apple ecosystem. He looks at things like a designer — **quality, longevity, and family value** matter more than specs. Thoughtful and resistant to hype.
 
+### Custom personas
+
+Press **G** at the persona menu to generate a random persona. The app will suggest traits — age, background, gaming habits, personality — and let you edit them or regenerate before saving. Once saved, the persona appears in your menu and can be added to any future room.
+
+Custom personas are addressed by first name: a generated "Rukmini Patel" becomes `@rukmini` in room commands.
+
 ---
 
 ## Loading ad images
@@ -315,13 +325,13 @@ The `!image` command sends the image to an AI vision model, which produces a det
 
 ## Session summaries
 
-When you type `!exit`, the app automatically writes a Markdown summary to:
+When you type `!exit`, the app first prints a **session brief** — five bullet-point insights — directly to the terminal, then saves a full Markdown summary to:
 
 ```
 chat_summaries/chat_YYYYMMDD_HHMMSS.md
 ```
 
-The file includes an executive summary of the session and the full conversation log with each persona's internal thinking visible.
+The file includes an executive summary of the session and the full conversation log with each persona's internal thinking visible. The summary saves even if you Ctrl+C during the brief generation.
 
 ---
 
@@ -353,6 +363,10 @@ python -m pytest tests/ -v
 
 ## Adding a new persona
 
+**Easy way — in the app:** Press **G** at the persona menu. The app generates a full persona, lets you edit any trait, and saves it automatically. No files to edit.
+
+**Manual way — via JSON:**
+
 1. Copy `personas/persona_template.json` and fill it in.
 2. Add an entry to `PERSONA_REGISTRY` in `config.py`.
 3. Add the `@mention` to `PERSONA_MENTION_MAP` in `config.py`.
@@ -364,8 +378,11 @@ See [`specs/focus_group_poc.md`](specs/focus_group_poc.md) for the full schema g
 
 ## Troubleshooting
 
-**"Connection refused" when starting the app**
-→ Ollama or Redis isn't running. Make sure both are started before running `python main.py`.
+**"Cannot connect to Redis" when starting the app**
+→ Redis isn't running. Start it with `brew services start redis` (macOS) or `sudo systemctl start redis` (Linux), then try again.
+
+**"Connection refused" from Ollama**
+→ Ollama isn't running. Start it with `ollama serve` in a separate terminal.
 
 **"!image" says no key found**
 → Open `.env` and add your key: `OLLAMA_API_KEY=your_key_here`
@@ -381,4 +398,4 @@ See [`specs/focus_group_poc.md`](specs/focus_group_poc.md) for the full schema g
 
 ---
 
-*Last updated: February 2026*
+*Last updated: February 2026 — v1.1*
