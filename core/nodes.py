@@ -63,14 +63,20 @@ When asked about an image, react as yourself. What draws you in? What puts you o
 """
 
 
-def _room_constraint(participant_names: List[str]) -> str:
+def _room_constraint(participant_names: List[str], my_name: str = "") -> str:
     """Build a system-prompt block that locks the model to the actual room roster."""
     names = ", ".join(participant_names)
+    voice_lock = (
+        f"\nThis response is YOUR turn only. You are speaking as {my_name} and only {my_name}. "
+        "Never simulate, quote, or speak for any other participant — not even to illustrate what "
+        "they might say. One voice, one perspective per turn. If someone else would respond, they "
+        "will get their own turn."
+    ) if my_name else ""
     return f"""
 
 == WHO IS IN THIS ROOM ==
 The ONLY people present in this focus group session are: {names}.
-There are NO other participants. Do NOT address, mention, or respond to anyone not on this list — not by name, not by implication. If you feel the urge to reference someone else, stop and redirect to the people actually listed here.
+There are NO other participants. Do NOT address, mention, or respond to anyone not on this list — not by name, not by implication. If you feel the urge to reference someone else, stop and redirect to the people actually listed here.{voice_lock}
 """
 
 
@@ -187,7 +193,7 @@ def generate_response_for_persona(
     if image_context:
         system_with_thinking += _image_block(image_context)
     if room_participants:
-        system_with_thinking += _room_constraint(room_participants)
+        system_with_thinking += _room_constraint(room_participants, my_name=persona_ctx["name"])
     system_with_thinking += THINKING_INSTRUCTION
 
     # After many exchanges, hint that the persona can naturally mention needing to leave
