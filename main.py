@@ -29,6 +29,7 @@ from rich.live import Live
 from rich.text import Text
 from rich.panel import Panel
 from rich.table import Table
+from rich import box as rich_box
 
 # Suppress noisy ResourceWarnings from unclosed sockets in LangChain/httpx internals
 warnings.filterwarnings("ignore", category=ResourceWarning)
@@ -83,6 +84,12 @@ def _rich_style(key: str) -> str:
     except (ValueError, IndexError):
         return "bold white"
 
+
+def _thought_style(rich_style: str) -> str:
+    """Derive a subtly lighter style for thoughts — dim, same colour, no bold."""
+    parts = [p for p in rich_style.split() if p != "bold"]
+    return "dim " + " ".join(parts) if parts else "dim"
+
 THINK_COLOR  = "\033[90m"    # Dark Grey  – thoughts
 SYSTEM_COLOR = "\033[2;37m"  # Dim White  – system messages
 HINT_COLOR   = "\033[2;36m"  # Dim Cyan   – command bar
@@ -112,15 +119,40 @@ def clear_screen() -> None:
     os.system("cls" if os.name == "nt" else "clear")
 
 
-_HINTS_L1 = "!observe [topic] [n]  ·  !focus @name  ·  !focus  ·  !add @name  ·  !kick @name"
-_HINTS_L2 = "!topic [text]  ·  !image <path>  ·  !images  ·  !clear  ·  !exit  ·  !help"
+_HINTS_CMDS = [
+    [
+        ("!observe", " [topic] [n]"),
+        ("!focus",   " @name"),
+        ("!focus",   ""),
+        ("!add",     " @name"),
+        ("!kick",    " @name"),
+    ],
+    [
+        ("!topic",  " [text]"),
+        ("!image",  " <path>"),
+        ("!images", ""),
+        ("!clear",  ""),
+        ("!exit",   ""),
+        ("!help",   ""),
+    ],
+]
 
 def print_hints() -> None:
+    def _hints_line(pairs) -> Text:
+        t = Text("  ")
+        for i, (name, args) in enumerate(pairs):
+            if i:
+                t.append("  ·  ", style="color(236)")
+            t.append(name, style="color(245)")
+            if args:
+                t.append(args, style="color(238)")
+        return t
+
     console.print()
-    console.rule(style="dim cyan")
-    console.print(f"  {_HINTS_L1}", style="dim cyan")
-    console.print(f"  {_HINTS_L2}", style="dim cyan")
-    console.rule(style="dim cyan")
+    console.rule(style="color(236)")
+    for row in _HINTS_CMDS:
+        console.print(_hints_line(row))
+    console.rule(style="color(236)")
 
 
 def persona_color(key: str) -> str:
@@ -181,11 +213,27 @@ def _print_help() -> None:
 
 
 def print_banner() -> None:
-    console.rule(style="white")
-    console.print("  FOCUS GROUP SIMULATION  —  Room Mode", style="bold")
-    console.rule(style="white")
-    console.print("  !add  !kick  !observe  !focus  !topic  !image  !clear  !exit  !help",
-                  style="dim white")
+    logo = (
+        " ▗▄▖   ▗▄▖   ▗▄▖\n"
+        "▐███▌ ▐███▌ ▐███▌\n"
+        " ▝▀▘   ▝▀▘   ▝▀▘"
+    )
+    body = Text(justify="center")
+    body.append("\n")
+    body.append("Focus Group Simulation\n", style="bold white")
+    body.append("by CreativeNest\n", style="color(240)")
+    body.append("\n")
+    body.append(logo + "\n", style="color(237)")
+    body.append("\n")
+    body.append("Real personas. Honest reactions.\n", style="color(241)")
+    body.append("\n")
+    console.print(Panel(
+        body,
+        title="[color(240)]CreativeNest  ×  Focus Group[/color(240)]",
+        border_style="color(238)",
+        padding=(0, 4),
+        box=rich_box.ROUNDED,
+    ))
     console.print()
 
 
@@ -754,7 +802,7 @@ def stream_persona_response(ctx, input_text, pkey, *, is_observe=False,
 
     console.print()
     if thoughts:
-        console.print(f"  \U0001f4ad {thoughts}", style="color(240)")
+        console.print(f"  \U0001f9e0 {thoughts} \U0001f9e0", style=_thought_style(style))
     console.rule(style="dim white")
 
     return thoughts, response, updated_history
@@ -829,8 +877,16 @@ def run() -> None:
         mention_map = get_full_mention_map()   # refresh each turn for newly added personas
 
         if focus and focus in room_state["personas"]:
-            focused_name = room_state["personas"][focus]["name"]
-            label = f"{USER_BOLD}You \u2192 {focused_name}{RESET}"
+            parts = []
+            for k in active:
+                if k not in room_state["personas"]:
+                    continue
+                n = room_state["personas"][k]["name"]
+                if k == focus:
+                    parts.append(f"{USER_BOLD}{n}{RESET}")
+                else:
+                    parts.append(f"{DIM}{n}{RESET}")
+            label = f"{USER_BOLD}You \u2192 [{RESET}{', '.join(parts)}{USER_BOLD}]{RESET}"
         else:
             room_names = [
                 room_state["personas"][k]["name"]
@@ -870,12 +926,12 @@ def run() -> None:
                         for line in brief.splitlines():
                             line = line.strip()
                             if line:
-                                brief_text.append(line + "\n", style="dim white")
+                                brief_text.append(line + "\n", style="color(239)")
                         console.print()
                         console.print(Panel(
                             brief_text,
-                            title="[bold]Session Insights[/bold]",
-                            border_style="dim white",
+                            title="[color(238)]Session Insights[/color(238)]",
+                            border_style="color(237)",
                             padding=(1, 2),
                         ))
                         console.print()

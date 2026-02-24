@@ -45,7 +45,7 @@ def _ddg_search(topic: str) -> str:
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS
             snippets = []
             with DDGS() as ddgs:
                 for r in ddgs.text(f"{topic} overview", max_results=5, timelimit="y"):
