@@ -250,6 +250,29 @@ class TestDetectCommand:
         r = detect_command("!add")
         assert r["cmd"] == "usage_hint"
 
+    def test_image_load_local_path(self):
+        r = detect_command("!image /Users/nietzsche/Desktop/ad.jpg")
+        assert r["cmd"] == "image_load"
+        assert r["source"] == "/Users/nietzsche/Desktop/ad.jpg"
+
+    def test_image_load_tilde_path(self):
+        r = detect_command("!image ~/Desktop/photo.png")
+        assert r["cmd"] == "image_load"
+        assert r["source"] == "~/Desktop/photo.png"
+
+    def test_image_clear(self):
+        assert detect_command("!image clear") == {"cmd": "image_clear"}
+        assert detect_command("!IMAGE CLEAR") == {"cmd": "image_clear"}
+
+    def test_image_list(self):
+        assert detect_command("!images") == {"cmd": "image_list"}
+        assert detect_command("!IMAGES") == {"cmd": "image_list"}
+
+    def test_image_bare_usage_hint(self):
+        r = detect_command("!image")
+        assert r["cmd"] == "usage_hint"
+        assert "!image" in r["hint"]
+
 
 class TestDetectSwitch:
 

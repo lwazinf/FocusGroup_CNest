@@ -78,7 +78,7 @@ _HINTS = (
     '!observe ["topic"] [rounds]'
     "  ·  !focus @name  ·  !focus"
     "  ·  !add @name  ·  !kick @name"
-    "  ·  !topic [text]"
+    "  ·  !topic [text]  ·  !image <path>  ·  !images"
     "  ·  !clear  ·  !exit  ·  !help"
 )
 
@@ -131,6 +131,9 @@ def _print_help() -> None:
         "  !focus               Clear focus — all personas respond again",
         "  !topic [text]        Change the discussion topic mid-session",
         "  !topic               Reset to the default topic",
+        "  !image <path>         Share an ad image — all personas react in character",
+        "  !images               List all images currently loaded in the room",
+        "  !image clear          Remove all shared images from the room",
         "  !reset / !clear      Wipe conversation history for all personas",
         "  !exit                Close the room and save a Markdown summary",
         "  !help                Show this help",
@@ -435,6 +438,7 @@ def run_observe(
                     ctx, current_prompt, is_observe=True,
                     room_participants=all_names,
                     topic_context=room_state["topic_context"],
+                    image_context=_build_image_context(room_state),
                 )
 
                 if thoughts:
@@ -466,6 +470,73 @@ def run_observe(
         cprint(SYSTEM_COLOR, "\n[Observation stopped.]")
 
     return room_state
+
+
+# ── Image helpers ──────────────────────────────────────────────────────────────
+
+def _build_image_context(room_state: RoomState) -> str:
+    """Build the formatted image context string from loaded images in room_state."""
+    if not room_state.get("image_contexts"):
+        return ""
+    try:
+        from services.image_analysis.service import get_loaded_images, format_for_personas
+        images = get_loaded_images()
+        return format_for_personas(images) if images else ""
+    except Exception:
+        return ""
+
+
+def _load_image(source: str, room_state: RoomState) -> RoomState:
+    """Read a local image file, analyze it, and add it to room state."""
+    try:
+        from services.image_analysis.service import analyze_image, ImageTooLargeError, UnsupportedFormatError, AnalysisError
+    except ImportError as e:
+        cprint(SYSTEM_COLOR, f"[Image analysis service not available: {e}]")
+        return room_state
+
+    path = os.path.expanduser(source)
+    if not os.path.exists(path):
+        cprint(SYSTEM_COLOR, f"[File not found: {path}]")
+        return room_state
+
+    display_name = os.path.basename(path)
+    cprint(SYSTEM_COLOR, f"[Analyzing image: {display_name}...]")
+
+    try:
+        loaded, cached = analyze_image(path)
+    except ImageTooLargeError as e:
+        cprint(SYSTEM_COLOR, f"[{e}]")
+        return room_state
+    except UnsupportedFormatError as e:
+        cprint(SYSTEM_COLOR, f"[{e}]")
+        return room_state
+    except AnalysisError as e:
+        cprint(SYSTEM_COLOR, f"[Image analysis failed: {e}]")
+        return room_state
+
+    # Update room_state image list (avoid duplicates by hash)
+    existing = room_state.get("image_contexts", [])
+    if not any(img["hash"] == loaded.hash for img in existing):
+        existing = existing + [{"filename": loaded.filename, "hash": loaded.hash}]
+
+    updated = {**room_state, "image_contexts": existing}
+    status = "cached" if cached else "analyzed"
+    cprint(SYSTEM_COLOR, f"[Image {status} ({len(existing)} image{'s' if len(existing) != 1 else ''} in room) — all personas are now briefed on: {display_name}]")
+    updated = append_log(updated, make_log_entry("system", f"Image loaded: {display_name}"))
+    return updated
+
+
+def _print_image_list(room_state: RoomState) -> None:
+    """Print all images currently loaded in the room."""
+    images = room_state.get("image_contexts", [])
+    if not images:
+        cprint(SYSTEM_COLOR, "[No images loaded. Use !image <path> to share one.]")
+        return
+    cprint(SYSTEM_COLOR, f"\n{DIVIDER}")
+    cprint(SYSTEM_COLOR, f"  Images in room ({len(images)}):")
+    for i, img in enumerate(images, start=1):
+        cprint(SYSTEM_COLOR, f"  {i}. {img['filename']}  [{img['hash'][:8]}...]")
+    cprint(SYSTEM_COLOR, DIVIDER)
 
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
@@ -504,6 +575,7 @@ def run() -> None:
         "full_log": [],
         "topic": topic,
         "topic_context": topic_context,
+        "image_contexts": [],
     }
 
     names = [personas[k]["name"] for k in initial_keys]
@@ -637,6 +709,20 @@ def run() -> None:
                 room_state = {**room_state, "topic": DEFAULT_TOPIC, "topic_context": _ftc(DEFAULT_TOPIC)}
                 cprint(SYSTEM_COLOR, f"[Topic reset to default: {DEFAULT_TOPIC}]")
 
+            elif cmd == "image_load":
+                source = cmd_result["source"]
+                room_state = _load_image(source, room_state)
+
+            elif cmd == "image_clear":
+                from services.image_analysis.image_redis import clear_index
+                clear_index()
+                room_state = {**room_state, "image_contexts": []}
+                cprint(SYSTEM_COLOR, "[All images removed from the room.]")
+                room_state = append_log(room_state, make_log_entry("system", "Image context cleared."))
+
+            elif cmd == "image_list":
+                _print_image_list(room_state)
+
             elif cmd == "help":
                 _print_help()
 
@@ -676,6 +762,7 @@ def run() -> None:
                 ctx, user_input, is_observe=False,
                 room_participants=all_room_names,
                 topic_context=room_state["topic_context"],
+                image_context=_build_image_context(room_state),
             )
 
             if thoughts:

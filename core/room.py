@@ -18,6 +18,7 @@ class RoomState(TypedDict):
     full_log: List[dict]                # complete log with thoughts
     topic: str                          # current discussion topic (default: "PlayStation 5")
     topic_context: str                  # fetched context block for topic
+    image_contexts: List[dict]          # list of {filename, hash} for images loaded this session
     # Each log entry: {timestamp, type, persona_key, persona_name, thoughts, content}
 
 

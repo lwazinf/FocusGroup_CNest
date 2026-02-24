@@ -134,4 +134,21 @@ def detect_command(user_input: str, mention_map: dict = None):
         name = focus_no_at.group(1).lower()
         return {"cmd": "did_you_mean", "suggestion": f"!focus @{name}"}
 
+    # !image <filepath> — load and analyze an image
+    # !image clear      — remove all images from the room
+    image_match = re.match(r'^!image\s+(.+)$', stripped, re.IGNORECASE)
+    if image_match:
+        source = image_match.group(1).strip()
+        if source.lower() == "clear":
+            return {"cmd": "image_clear"}
+        return {"cmd": "image_load", "source": source}
+
+    # bare !image — usage hint
+    if lower == "!image":
+        return {"cmd": "usage_hint", "hint": "Usage: !image <filepath>  or  !image clear"}
+
+    # !images — list all loaded images
+    if lower == "!images":
+        return {"cmd": "image_list"}
+
     return None

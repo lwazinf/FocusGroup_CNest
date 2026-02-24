@@ -52,6 +52,17 @@ def _topic_block(topic_context: str) -> str:
 """
 
 
+def _image_block(image_context: str) -> str:
+    """Wrap image analysis context in a clearly labelled prompt section."""
+    return f"""
+
+== ADVERTISEMENTS SHARED IN THIS ROOM ==
+{image_context.strip()}
+
+When asked about an image, react as yourself. What draws you in? What puts you off? What does it make you feel based on your values, taste, lifestyle, and experiences? Do not summarise — give your genuine, in-character reaction.
+"""
+
+
 def _room_constraint(participant_names: List[str]) -> str:
     """Build a system-prompt block that locks the model to the actual room roster."""
     names = ", ".join(participant_names)
@@ -148,6 +159,7 @@ def generate_response_for_persona(
     is_observe: bool = False,
     room_participants: List[str] = None,
     topic_context: str = "",
+    image_context: str = "",
 ) -> Tuple[str, str, List[dict]]:
     """
     Generate a response for a single persona.
@@ -172,6 +184,8 @@ def generate_response_for_persona(
     system_with_thinking = persona_ctx["system_prompt"]
     if topic_context:
         system_with_thinking += _topic_block(topic_context)
+    if image_context:
+        system_with_thinking += _image_block(image_context)
     if room_participants:
         system_with_thinking += _room_constraint(room_participants)
     system_with_thinking += THINKING_INSTRUCTION

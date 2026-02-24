@@ -29,3 +29,7 @@ PERSONA_MENTION_MAP = {
     "@lena": "1",
     "@marcus": "2"
 }
+
+# Ollama Cloud (image analysis)
+OLLAMA_CLOUD_API_KEY  = os.getenv("OLLAMA_CLOUD_API_KEY", "")
+OLLAMA_CLOUD_BASE_URL = os.getenv("OLLAMA_CLOUD_BASE_URL", "http://localhost:11434")

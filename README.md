@@ -14,6 +14,7 @@ A terminal-based AI focus group. You're the moderator — invite synthetic perso
 | [Ollama](https://ollama.com) | Local LLM inference |
 | Redis | Session history storage |
 | `llama3.1:8b` pulled | `ollama pull llama3.1:8b` |
+| Ollama Cloud API key | Required for `!image` (vision analysis). Set `OLLAMA_CLOUD_API_KEY` and `OLLAMA_CLOUD_BASE_URL` as environment variables. |
 
 ### Install
 
@@ -74,6 +75,9 @@ Type `!help` at any time while the app is running to see all commands.
 | `!focus` | Clear focus — all active personas respond |
 | `!topic [text]` | Change the discussion topic mid-session |
 | `!topic` | Reset to the default topic |
+| `!image <path>` | Load an image into the room — drag a file from Finder to copy its path |
+| `!image clear` | Remove all images from the room |
+| `!images` | List all images currently loaded in the room |
 | `!reset` / `!clear` | Wipe conversation history for all active personas |
 | `!exit` | Close the room and save a Markdown summary |
 | `!help` | Show all commands in-app |
@@ -173,6 +177,40 @@ You → Lena: !exit
 [Summary saved to: chat_summaries/chat_20260223_141022.md]
 [Room closed. Goodbye.]
 ```
+
+---
+
+## Image Analysis
+
+Load any advertisement or product image into the room and the personas will react to it through their own lens.
+
+```
+You → [Lena, Marcus]: !image /Users/nietzsche/Desktop/ps5_ad.jpg
+
+[Analyzing ps5_ad.jpg... (this may take a moment)]
+[ps5_ad.jpg loaded. Ask the group about it.]
+
+You → [Lena, Marcus]: What's your first reaction to this ad?
+```
+
+**How it works:**
+
+1. `!image <path>` loads the file, sends it to Ollama Cloud (Qwen3-VL 235B) for vision analysis, and caches the result in Redis.
+2. The analysis is injected into every persona's system prompt as a shared context block.
+3. Each persona reacts based on their own values, taste, and lifestyle — not a shared script.
+4. Drag a file from Finder into your terminal to paste the path automatically.
+5. Repeated loads of the same image use the cached analysis (no extra API call).
+
+**Setup (required for `!image`):**
+
+```bash
+export OLLAMA_CLOUD_API_KEY=your_key_here
+export OLLAMA_CLOUD_BASE_URL=https://your-ollama-cloud-endpoint
+```
+
+Add these to your `.env` or shell profile.
+
+**Supported formats:** `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp` (max 20 MB)
 
 ---
 
